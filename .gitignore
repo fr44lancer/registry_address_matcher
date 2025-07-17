@@ -45,3 +45,4 @@ newrelic.ini
 .claude
 .venv
 *.log
+.streamlit/

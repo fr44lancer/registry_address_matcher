@@ -15,6 +15,7 @@ import json
 import base64
 from io import BytesIO
 import zipfile
+from supabase import create_client, Client
 
 # ---------------- Configuration ----------------
 st.set_page_config(
@@ -70,42 +71,53 @@ logger = logging.getLogger(__name__)
 
 # ---------------- Database Connection ----------------
 @st.cache_resource
-def get_database_connection(host="localhost", port=3306, database="experiments", user="root", password="DC123456"):
-    """Create database connection with error handling"""
+def get_supabase_client() -> Client:
+    """Initialize Supabase client with error handling"""
     try:
-        connection_string = f"mysql+pymysql://{user}:{password}@{host}:{port}/{database}?charset=utf8mb4"
-        engine = create_engine(
-            connection_string,
-            pool_size=10,
-            max_overflow=20,
-            pool_recycle=3600,
-            pool_pre_ping=True,
-            echo=False  # Set to True for SQL debugging
-        )
-        # Test connection
-        with engine.connect() as conn:
-            conn.execute(text("SELECT 1"))
-        return engine
+        print(st.secrets)
+        url = st.secrets["SUPABASE_URL"]
+        key = st.secrets["SUPABASE_KEY"]
+
+        if not url or not key:
+            raise ValueError("Missing SUPABASE_URL or SUPABASE_KEY in secrets")
+
+        supabase = create_client(url, key)
+
+        # Optional test query to validate the connection
+        test = supabase.table("spr").select("*").limit(1).execute()
+
+        print('test')
+        print(test)
+        return supabase
+
     except Exception as e:
-        st.error(f"Database connection failed: {str(e)}")
-        logger.error(f"Database connection error: {str(e)}")
+        st.error(f"Supabase connection failed: {str(e)}")
+        logger.error(f"Supabase client error: {str(e)}")
         return None
 
 
 # ---------------- Data Loading with Advanced Caching ----------------
-@st.cache_data(ttl=3600)  # Cache for 1 hour
-def load_registry_data(registry_name, table_name, _engine):
-    """Load registry data with comprehensive error handling"""
+@st.cache_data(ttl=3600)
+def load_registry_data(registry_name, table_name, _supabase_client):
+    """Load registry data from Supabase with comprehensive error handling"""
     try:
-        query = f"SELECT * FROM {table_name}"
-        df = pd.read_sql(query, con=_engine)
+        # This will raise an exception on failure
+        response = _supabase_client.table(table_name).select("*").execute()
+        data = response.data
 
-        # Data validation
+        if not data:
+            st.warning(f"No data returned from {registry_name}")
+            return None
+
+        df = pd.DataFrame(data)
+
         required_columns = ['STREET_NAME', 'HOUSE', 'BUILDING']
         missing_columns = [col for col in required_columns if col not in df.columns]
 
+
         if missing_columns:
             st.error(f"Missing required columns in {registry_name}: {missing_columns}")
+            st.dataframe(df.head())
             return None
 
         logger.info(f"Loaded {len(df)} records from {registry_name}")
@@ -119,9 +131,6 @@ def load_registry_data(registry_name, table_name, _engine):
 
 # ---------------- Advanced Text Normalization ----------------
 
-
-import re
-import pandas as pd
 
 class AddressNormalizer:
     def __init__(self):
@@ -349,7 +358,7 @@ class AdvancedAddressMatcher:
         status_text.text("🔍 Phase 1: Full address exact matching...")
         cad_full_lookup = {row['FULL_ADDRESS']: idx for idx, row in self.cad_df.iterrows()}
 
-        chunk_size = 500
+        chunk_size = 1000
         phase1_matches = 0
 
         for i in range(0, total_spr, chunk_size):
@@ -868,7 +877,7 @@ def main():
     # Header
     st.markdown("""
     <div class="main-header">
-        <h1>🏘️ Address Matcher</h1>
+        <h1>🏘️ Advanced Address Registry Matcher</h1>
         <p>Comprehensive address matching and mapping between SPR and Cadastre registries</p>
     </div>
     """, unsafe_allow_html=True)
@@ -885,28 +894,6 @@ def main():
     with st.sidebar:
         st.markdown('<div class="sidebar-section">', unsafe_allow_html=True)
         st.header("🔧 Configuration")
-
-        # Database settings
-
-        # Allow environment variables for production
-        import os
-        default_host = os.getenv('DB_HOST', 'localhost')
-        default_port = int(os.getenv('DB_PORT', '3306'))
-        default_db = os.getenv('DB_NAME', 'experiments')
-        default_user = os.getenv('DB_USER', 'root')
-        default_password = os.getenv('DB_PASSWORD', 'DC123456')
-
-        db_host = default_host
-        db_port = default_port
-        db_name = default_db
-        db_user = default_user
-        db_password = default_password
-
-        # Table settings
-        spr_table = "spr"
-        cad_table = "cadastre_dp"
-
-        # Matching parameters
         matching_method = st.selectbox(
             "Matching Strategy",
             ["Exact Only", "Fuzzy Only", "Hybrid (Exact + Fuzzy)", "Comprehensive Analysis"]
@@ -924,7 +911,7 @@ def main():
         with col1:
             use_all_records = st.checkbox(
                 "Process All Records",
-                value=True,
+                value=False,
                 help="Process all available SPR records (ignores Max Records limit)"
             )
 
@@ -944,7 +931,7 @@ def main():
             chunk_size = st.number_input(
                 "Chunk Size",
                 min_value=10,
-                max_value=10000,
+                max_value=5000,
                 value=500,
                 step=50,
                 help="Number of records to process in each chunk (affects memory usage and progress updates)"
@@ -995,15 +982,15 @@ def main():
         st.subheader("Registry Data Overview")
 
         # Load database connection
-        engine = get_database_connection(db_host, db_port, db_name, db_user, db_password)
-        if engine is None:
-            st.error("Cannot proceed without database connection")
-            return
+        supabase = get_supabase_client()
+        if supabase is None:
+            st.error("Cannot proceed without Supabase connection")
+            st.stop()
 
         # Load data
         with st.spinner("Loading registry data..."):
-            spr_df = load_registry_data("SPR", spr_table, engine)
-            cad_df = load_registry_data("Cadastre", cad_table, engine)
+            spr_df = load_registry_data("SPR", 'spr', supabase)
+            cad_df = load_registry_data("Cadastre", 'cadastre', supabase)
 
         if spr_df is None or cad_df is None:
             st.error("Failed to load registry data")
@@ -1227,8 +1214,7 @@ def main():
                     complete_phase.markdown("✅ **Phase 3: Finalizing** - Complete")
                     overall_status.text("🎉 All phases completed successfully!")
 
-                    # Display comprehensive summary
-                    st.balloons()
+
 
                     summary_col1, summary_col2, summary_col3, summary_col4 = st.columns(4)
                     with summary_col1:
