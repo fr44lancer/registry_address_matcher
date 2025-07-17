@@ -8,12 +8,13 @@ import logging
 from config.settings import APP_CONFIG, DB_CONFIG, MATCHING_CONFIG
 from src.database.connection import get_database_manager
 from src.database.data_loader import load_registry_data_cached
-from src.matching.normalizer import AddressNormalizer
-from src.matching.engine import AdvancedAddressMatcher
 from src.quality.analyzer import DataQualityAnalyzer
 from src.visualization.charts import VisualizationManager
 from src.utils.export import ExportManager
 from src.utils.logging import setup_logging, get_logger
+
+from src.matching.normalizer import AddressNormalizer
+from src.matching.engine import AdvancedAddressMatcher
 
 # Setup logging
 logger = setup_logging()
