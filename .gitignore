@@ -44,3 +44,4 @@ local_scripts/*
 newrelic.ini
 .claude
 .venv
+*.log
