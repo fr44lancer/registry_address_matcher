@@ -1,0 +1,83 @@
+from .ui_components import (
+    configure_page,
+    apply_custom_css,
+    render_main_header,
+    render_sidebar_config,
+    render_data_overview_metrics,
+    render_sample_data_preview,
+    render_matching_controls,
+    render_matching_results_summary,
+    render_match_type_distribution,
+    render_score_quality_categories,
+    render_top_scoring_matches,
+    render_interactive_match_explorer,
+    render_manual_review_interface,
+    render_quality_report_summary,
+    render_detailed_statistics,
+    render_unmatched_analysis,
+    render_export_options,
+    render_recommendations,
+    render_summary_report
+)
+
+from .visualizations import (
+    create_match_quality_chart,
+    create_data_quality_dashboard,
+    create_score_distribution_chart,
+    create_match_type_distribution_chart,
+    create_completeness_correlation_chart,
+    create_performance_timeline_chart,
+    create_street_analysis_chart,
+    create_quality_metrics_dashboard,
+    create_advanced_matching_analysis
+)
+
+from .duplicates_view import (
+    render_duplicates_overview,
+    render_duplicates_filters,
+    render_duplicates_table,
+    render_duplicates_analysis,
+    render_resolution_suggestions,
+    render_duplicates_export,
+    render_duplicates_help,
+    create_duplicates_overview_chart
+)
+
+__all__ = [
+    'configure_page',
+    'apply_custom_css',
+    'render_main_header',
+    'render_sidebar_config',
+    'render_data_overview_metrics',
+    'render_sample_data_preview',
+    'render_matching_controls',
+    'render_matching_results_summary',
+    'render_match_type_distribution',
+    'render_score_quality_categories',
+    'render_top_scoring_matches',
+    'render_interactive_match_explorer',
+    'render_manual_review_interface',
+    'render_quality_report_summary',
+    'render_detailed_statistics',
+    'render_unmatched_analysis',
+    'render_export_options',
+    'render_recommendations',
+    'render_summary_report',
+    'create_match_quality_chart',
+    'create_data_quality_dashboard',
+    'create_score_distribution_chart',
+    'create_match_type_distribution_chart',
+    'create_completeness_correlation_chart',
+    'create_performance_timeline_chart',
+    'create_street_analysis_chart',
+    'create_quality_metrics_dashboard',
+    'create_advanced_matching_analysis',
+    'render_duplicates_overview',
+    'render_duplicates_filters',
+    'render_duplicates_table',
+    'render_duplicates_analysis',
+    'render_resolution_suggestions',
+    'render_duplicates_export',
+    'render_duplicates_help',
+    'create_duplicates_overview_chart'
+]
