@@ -79,8 +79,7 @@ class SPRDuplicateDetector:
         }
         
         self.duplicate_groups = duplicate_groups
-        
-        logger.info(f"Duplicate detection completed: {total_duplicates} duplicates in {unique_duplicate_groups} groups")
+
         
         return {
             'duplicate_groups': duplicate_groups,
@@ -181,17 +180,7 @@ class SPRDuplicateDetector:
                 suggestions.append(suggestion)
         
         return suggestions
-    
-    def export_duplicates_report(self) -> Dict:
-        """Export comprehensive duplicates report"""
-        return {
-            'summary': self.duplicate_stats,
-            'duplicate_groups': self.duplicate_groups,
-            'patterns_analysis': self.analyze_duplicate_patterns(),
-            'resolution_suggestions': self.get_duplicate_resolution_suggestions(),
-            'export_timestamp': datetime.now().isoformat(),
-            'total_unique_addresses': len(self.duplicate_groups)
-        }
+
 
 
 class DuplicateDataProcessor:

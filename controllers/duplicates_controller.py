@@ -11,7 +11,6 @@ from views.duplicates_view import (
     render_duplicates_table,
     render_duplicates_analysis,
     render_resolution_suggestions,
-    render_duplicates_export,
     render_duplicates_help,
     create_duplicates_overview_chart
 )
@@ -52,7 +51,6 @@ class DuplicatesController:
                 st.session_state.spr_processed = spr_df
                 return spr_df
         except Exception as e:
-            logger.error(f"Error loading SPR data: {e}")
             st.error(f"Error loading SPR data: {e}")
         
         return None
@@ -117,18 +115,6 @@ class DuplicatesController:
             st.error(f"Error getting resolution suggestions: {e}")
             return []
     
-    def export_duplicates_report(self) -> Dict[str, Any]:
-        """Export comprehensive duplicates report"""
-        detector = self.get_detector()
-        if not detector:
-            return {}
-        
-        try:
-            return detector.export_duplicates_report()
-        except Exception as e:
-            logger.error(f"Error exporting report: {e}")
-            st.error(f"Error exporting report: {e}")
-            return {}
     
     def reset_analysis(self):
         """Reset duplicate analysis"""
@@ -218,9 +204,6 @@ class DuplicatesController:
                 suggestions = self.get_resolution_suggestions()
                 render_resolution_suggestions(suggestions)
                 
-                # Export options
-                report = self.export_duplicates_report()
-                render_duplicates_export(report)
             
         else:
             st.success("🎉 No duplicate addresses found in the SPR registry!")
@@ -247,21 +230,6 @@ class DuplicatesController:
             'largest_group': stats.get('largest_duplicate_group', 0)
         }
     
-    def export_duplicates_csv(self) -> Optional[str]:
-        """Export duplicates as CSV string"""
-        results = self.get_duplicate_results()
-        
-        if not results:
-            return None
-        
-        try:
-            duplicate_groups = results.get('duplicate_groups', {})
-            display_df = self.processor.format_duplicate_groups_for_display(duplicate_groups)
-            return display_df.to_csv(index=False)
-        except Exception as e:
-            logger.error(f"Error exporting CSV: {e}")
-            st.error(f"Error exporting CSV: {e}")
-            return None
     
     def get_filtered_duplicates(self, filters: Dict[str, Any]) -> Dict[str, Any]:
         """Get filtered duplicates based on criteria"""

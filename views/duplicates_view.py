@@ -361,45 +361,6 @@ def render_resolution_suggestions(suggestions: List[Dict]):
                 st.write("---")
 
 
-def render_duplicates_export(duplicates_report: Dict):
-    """Render export options for duplicates"""
-    st.subheader("📥 Export Options")
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        if st.button("📊 Export Summary Report"):
-            summary_data = {
-                'summary': duplicates_report.get('summary', {}),
-                'export_timestamp': datetime.now().isoformat()
-            }
-            
-            json_data = json.dumps(summary_data, indent=2)
-            st.download_button(
-                label="Download Summary JSON",
-                data=json_data,
-                file_name=f"spr_duplicates_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-                mime="application/json"
-            )
-    
-    with col2:
-        if st.button("📋 Export Detailed Report"):
-            st.download_button(
-                label="Download Detailed Report",
-                data=json.dumps(duplicates_report, indent=2),
-                file_name=f"spr_duplicates_detailed_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-                mime="application/json"
-            )
-    
-    with col3:
-        if st.button("📊 Export Patterns Analysis"):
-            patterns_data = duplicates_report.get('patterns_analysis', {})
-            st.download_button(
-                label="Download Patterns JSON",
-                data=json.dumps(patterns_data, indent=2),
-                file_name=f"spr_duplicates_patterns_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-                mime="application/json"
-            )
 
 
 def apply_filters(duplicate_groups: Dict, filters: Dict) -> Dict:
@@ -460,7 +421,6 @@ def render_duplicates_help():
         
         - Use filters to focus on specific duplicate patterns
         - Large duplicate groups often indicate data quality issues
-        - Export reports for detailed analysis and cleanup planning
         """)
 
 

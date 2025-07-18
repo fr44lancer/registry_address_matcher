@@ -16,7 +16,6 @@ from views.ui_components import (
     render_matching_results_summary,
     render_match_type_distribution
 )
-from utils.export_utils import create_export_package
 
 logger = logging.getLogger(__name__)
 
@@ -103,8 +102,7 @@ class MatchingController:
             # Simple progress display
             st.subheader("📊 Exact Matching")
             
-            with st.spinner("Finding exact matches..."):
-                exact_matches = matcher.find_exact_matches()
+            exact_matches = matcher.find_exact_matches()
             
             # Calculate processing time
             processing_time = time.time() - overall_start_time
@@ -132,7 +130,6 @@ class MatchingController:
 
         except Exception as e:
             st.error(f"Error during matching process: {str(e)}")
-            logger.error(f"Matching process error: {str(e)}")
             st.exception(e)
             return pd.DataFrame()
 
@@ -215,25 +212,73 @@ class MatchingController:
         """Get current quality metrics"""
         return st.session_state.quality_metrics
 
-    def export_results(self, export_type: str = "complete"):
-        """Export matching results"""
-        if st.session_state.matching_results is None:
-            st.error("No matching results to export")
-            return
-
-        matches_df = st.session_state.matching_results
-        quality_metrics = st.session_state.quality_metrics
-
-        if export_type == "matches":
-            csv_data = matches_df.to_csv(index=False)
-            return csv_data
-        elif export_type == "complete":
-            return create_export_package(
-                matches_df, 
-                st.session_state.spr_processed, 
-                st.session_state.cad_processed, 
-                quality_metrics
-            )
-        else:
-            st.error(f"Unknown export type: {export_type}")
+    def get_unmatched_spr_addresses(self) -> Optional[pd.DataFrame]:
+        """Get unmatched SPR addresses - only available after matching process"""
+        if st.session_state.spr_processed is None:
             return None
+            
+        # Only show unmatched addresses if matching has been performed
+        matches_df = st.session_state.matching_results
+        if matches_df is None:
+            # No matching has been performed yet
+            return None
+            
+        spr_processed = st.session_state.spr_processed
+        
+        if matches_df.empty:
+            # If no matches found, all SPR addresses are unmatched
+            unmatched_spr = spr_processed.copy()
+        else:
+            # Debug: Let's see what we're working with
+            print(f"DEBUG: matches_df has {len(matches_df)} rows")
+            print(f"DEBUG: spr_processed has {len(spr_processed)} rows") 
+            print(f"DEBUG: matches_df columns: {matches_df.columns.tolist()}")
+            print(f"DEBUG: spr_processed columns: {spr_processed.columns.tolist()}")
+            
+            # Get matched SPR IDs - handle both cases: with and without ADDRESS_ID
+            matched_spr_ids = set()
+            
+            if 'ADDRESS_ID' in spr_processed.columns:
+                # If SPR has ADDRESS_ID column, use it
+                matched_spr_ids = set(matches_df['ADDRESS_ID_SPR'].unique())
+                matched_spr_ids.discard('')  # Remove empty strings
+                unmatched_mask = ~spr_processed['ADDRESS_ID'].isin(matched_spr_ids)
+            else:
+                # If no ADDRESS_ID column, matches are likely using pandas index
+                # Let's check if ADDRESS_ID_SPR contains actual IDs or empty strings
+                spr_ids_in_matches = matches_df['ADDRESS_ID_SPR'].unique()
+                print(f"DEBUG: Sample ADDRESS_ID_SPR values: {spr_ids_in_matches[:10]}")
+                
+                if all(id_val == '' for id_val in spr_ids_in_matches):
+                    # ADDRESS_ID_SPR is empty, matching was done on index
+                    # We need to reconstruct which records were matched
+                    # Use FULL_ADDRESS_SPR to identify matched records
+                    matched_full_addresses = set(matches_df['FULL_ADDRESS_SPR'].unique())
+                    unmatched_mask = ~spr_processed['FULL_ADDRESS'].isin(matched_full_addresses)
+                else:
+                    # ADDRESS_ID_SPR has actual values, use them
+                    matched_spr_ids = set(spr_ids_in_matches)
+                    matched_spr_ids.discard('')  # Remove empty strings
+                    unmatched_mask = ~spr_processed.index.isin(matched_spr_ids)
+            
+            unmatched_spr = spr_processed[unmatched_mask].copy()
+            print(f"DEBUG: After filtering, unmatched_spr has {len(unmatched_spr)} rows")
+        
+        # Ensure all required columns exist before adding analysis columns
+        if 'COMPLETENESS_SCORE' not in unmatched_spr.columns:
+            unmatched_spr['COMPLETENESS_SCORE'] = 0.0
+        if 'STREET_NAME' not in unmatched_spr.columns:
+            unmatched_spr['STREET_NAME'] = ''
+        if 'HOUSE' not in unmatched_spr.columns:
+            unmatched_spr['HOUSE'] = ''
+        if 'BUILDING' not in unmatched_spr.columns:
+            unmatched_spr['BUILDING'] = ''
+        
+        # Add analysis columns with safe operations
+        unmatched_spr['IS_COMPLETE'] = unmatched_spr['COMPLETENESS_SCORE'].fillna(0) >= 0.8
+        unmatched_spr['HAS_STREET'] = unmatched_spr['STREET_NAME'].notna() & (unmatched_spr['STREET_NAME'].astype(str) != '')
+        unmatched_spr['HAS_HOUSE'] = unmatched_spr['HOUSE'].notna() & (unmatched_spr['HOUSE'].astype(str) != '')
+        unmatched_spr['HAS_BUILDING'] = unmatched_spr['BUILDING'].notna() & (unmatched_spr['BUILDING'].astype(str) != '')
+        
+        return unmatched_spr
+

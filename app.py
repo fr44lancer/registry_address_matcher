@@ -16,17 +16,16 @@ from views import (
     render_score_quality_categories, render_top_scoring_matches,
     render_interactive_match_explorer, render_manual_review_interface,
     render_quality_report_summary, render_detailed_statistics,
-    render_unmatched_analysis, render_export_options,
+    render_unmatched_analysis,
     render_recommendations, render_summary_report,
-    create_data_quality_dashboard, create_match_quality_chart
+    create_data_quality_dashboard, create_match_quality_chart,
+    render_unmatched_addresses_summary, render_unmatched_data_quality_analysis,
+    render_unmatched_addresses_filters, render_unmatched_addresses_table
 )
 from controllers.matching_controller import MatchingController
 from controllers.duplicates_controller import DuplicatesController
-from config import setup_logging, get_app_config
 
-# Setup logging
-setup_logging()
-logger = logging.getLogger(__name__)
+
 
 
 def main():
@@ -49,8 +48,8 @@ def main():
     config = render_sidebar_config()
     
     # Create main tabs
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(
-        ["📊 Data Overview", "🔍 Matching Process", "📈 Results Analysis", "📋 Quality Report", "🔍 SPR Duplicates"]
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
+        ["📊 Data Overview", "🔍 Matching Process", "📈 Results Analysis", "📋 Quality Report", "🔍 SPR Duplicates", "❌ Unmatched Addresses"]
     )
     
     with tab1:
@@ -67,6 +66,9 @@ def main():
     
     with tab5:
         render_duplicates_tab(duplicates_controller)
+    
+    with tab6:
+        render_unmatched_addresses_tab(controller)
 
 
 def render_data_overview_tab(controller: MatchingController, config: Dict[str, Any]):
@@ -159,7 +161,7 @@ def render_results_analysis_tab(controller: MatchingController):
 
 def render_quality_report_tab(controller: MatchingController):
     """Render the quality report tab"""
-    st.subheader("Quality Report & Export")
+    st.subheader("Quality Report")
     
     matches_df = controller.get_matching_results()
     quality_metrics = controller.get_quality_metrics()
@@ -182,8 +184,6 @@ def render_quality_report_tab(controller: MatchingController):
     # Render unmatched analysis
     unmatched_spr = render_unmatched_analysis(matches_df, spr_processed)
     
-    # Render export options
-    render_export_options(matches_df, unmatched_spr)
     
     # Render recommendations
     render_recommendations(matches_df, spr_processed, unmatched_spr)
@@ -195,6 +195,66 @@ def render_quality_report_tab(controller: MatchingController):
 def render_duplicates_tab(duplicates_controller: DuplicatesController):
     """Render the duplicates analysis tab"""
     duplicates_controller.render_duplicates_tab()
+
+
+def render_unmatched_addresses_tab(controller: MatchingController):
+    """Render the unmatched addresses tab"""
+    st.subheader("Unmatched SPR Addresses")
+    
+    # Check if data is loaded
+    if st.session_state.get('spr_processed') is None:
+        st.warning("⚠️ Please load data in the **Data Overview** tab first")
+        return
+    
+    # Check if matching has been performed
+    if st.session_state.get('matching_results') is None:
+        st.info("🔍 Please run the matching process in the **Matching Process** tab first to see unmatched addresses")
+        
+        # Show some basic info about total SPR records
+        spr_processed = st.session_state.get('spr_processed')
+        if spr_processed is not None:
+            st.write(f"📊 Total SPR records loaded: **{len(spr_processed):,}**")
+            st.write("Once matching is complete, unmatched addresses will be displayed here for analysis.")
+        return
+    
+    # Get unmatched addresses
+    unmatched_df = controller.get_unmatched_spr_addresses()
+    
+    if unmatched_df is None:
+        st.error("❌ Unable to retrieve unmatched addresses")
+        return
+    
+    if unmatched_df.empty:
+        st.success("🎉 Excellent! No unmatched addresses found! All SPR addresses have been successfully matched.")
+        
+        # Show some stats
+        matches_df = st.session_state.get('matching_results')
+        spr_processed = st.session_state.get('spr_processed')
+        if matches_df is not None and spr_processed is not None:
+            st.write(f"📊 **Total SPR Records:** {len(spr_processed):,}")
+            st.write(f"✅ **Total Matches:** {len(matches_df):,}")
+            st.write(f"🎯 **Match Rate:** 100%")
+        return
+    
+    # Show summary with match context
+    matches_df = st.session_state.get('matching_results')
+    spr_processed = st.session_state.get('spr_processed')
+    if matches_df is not None and spr_processed is not None:
+        match_rate = len(matches_df) / len(spr_processed) * 100 if len(spr_processed) > 0 else 0
+        st.info(f"📊 **Matching Summary:** {len(matches_df):,} matches found ({match_rate:.1f}% match rate) | {len(unmatched_df):,} addresses remain unmatched")
+    
+    # Render summary
+    render_unmatched_addresses_summary(unmatched_df)
+    
+    # Render data quality analysis
+    render_unmatched_data_quality_analysis(unmatched_df)
+    
+    # Render filters and get filtered data
+    filtered_df = render_unmatched_addresses_filters(unmatched_df)
+    
+    # Render table with filtered data
+    render_unmatched_addresses_table(filtered_df)
+    
 
 
 if __name__ == "__main__":

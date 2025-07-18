@@ -128,12 +128,10 @@ def render_sidebar_config():
                 help="Number of records to process in each chunk (affects memory usage and progress updates)"
             )
 
-        # No fuzzy matching parameters needed for exact matching only
 
         # Advanced options
         st.subheader("Advanced Options")
         enable_logging = st.checkbox("Enable Detailed Logging", value=True)
-        export_unmatched = st.checkbox("Include Unmatched Records", value=True)
 
         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -144,9 +142,7 @@ def render_sidebar_config():
             'use_all_records': use_all_records,
             'max_records': max_records,
             'chunk_size': chunk_size,
-            # threshold removed - not needed for exact matching
-            'enable_logging': enable_logging,
-            'export_unmatched': export_unmatched
+            'enable_logging': enable_logging
         }
 
 
@@ -504,45 +500,6 @@ def render_unmatched_analysis(matches_df, spr_processed):
     return unmatched_spr
 
 
-def render_export_options(matches_df, unmatched_spr):
-    """Render export options"""
-    st.subheader("📥 Export Options")
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        if st.button("📊 Export Matched Records"):
-            csv_data = matches_df.to_csv(index=False)
-            st.download_button(
-                label="Download Matched Records CSV",
-                data=csv_data,
-                file_name=f"matched_addresses_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                mime="text/csv"
-            )
-
-    with col2:
-        if st.button("📋 Export Unmatched Records") and len(unmatched_spr) > 0:
-            unmatched_csv = unmatched_spr.to_csv(index=False)
-            st.download_button(
-                label="Download Unmatched Records CSV",
-                data=unmatched_csv,
-                file_name=f"unmatched_addresses_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                mime="text/csv"
-            )
-
-    with col3:
-        if st.button("📦 Export Complete Package"):
-            from utils.export_utils import create_export_package
-            # Create comprehensive export package
-            export_data = create_export_package(matches_df, st.session_state.get('spr_processed'), 
-                                               st.session_state.get('cad_processed'), 
-                                               st.session_state.get('quality_metrics'))
-            st.download_button(
-                label="Download Complete Package",
-                data=export_data,
-                file_name=f"address_matching_package_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip",
-                mime="application/zip"
-            )
 
 
 def render_recommendations(matches_df, spr_processed, unmatched_spr):
@@ -624,12 +581,264 @@ def render_summary_report(matches_df, quality_metrics, spr_processed):
 
     st.markdown(summary_text)
 
-    # Export summary report
-    st.download_button(
-        label="📄 Download Summary Report",
-        data=summary_text,
-        file_name=f"matching_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md",
-        mime="text/markdown"
-    )
-
     return summary_text
+
+
+def render_unmatched_addresses_summary(unmatched_df):
+    """Render unmatched addresses summary metrics"""
+    if unmatched_df is None or unmatched_df.empty:
+        st.info("No unmatched addresses found or data not available")
+        return
+    
+    st.subheader("📊 Unmatched Addresses Summary")
+    
+    # Summary metrics
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("Total Unmatched", f"{len(unmatched_df):,}")
+    
+    with col2:
+        if 'IS_COMPLETE' in unmatched_df.columns:
+            complete_count = unmatched_df['IS_COMPLETE'].sum()
+            complete_pct = complete_count / len(unmatched_df) * 100 if len(unmatched_df) > 0 else 0
+            st.metric("Complete Records", f"{complete_count:,} ({complete_pct:.1f}%)")
+        else:
+            st.metric("Complete Records", "N/A")
+    
+    with col3:
+        if 'HAS_STREET' in unmatched_df.columns:
+            missing_street = (~unmatched_df['HAS_STREET']).sum()
+            st.metric("Missing Street", f"{missing_street:,}")
+        else:
+            st.metric("Missing Street", "N/A")
+    
+    with col4:
+        if 'HAS_HOUSE' in unmatched_df.columns:
+            missing_house = (~unmatched_df['HAS_HOUSE']).sum()
+            st.metric("Missing House", f"{missing_house:,}")
+        else:
+            st.metric("Missing House", "N/A")
+
+
+def render_unmatched_data_quality_analysis(unmatched_df):
+    """Render data quality analysis for unmatched addresses"""
+    if unmatched_df is None or unmatched_df.empty:
+        return
+    
+    st.subheader("🔍 Data Quality Analysis")
+    
+    # Quality breakdown
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("### Completeness Breakdown")
+        
+        if 'COMPLETENESS_SCORE' in unmatched_df.columns:
+            # Completeness categories
+            excellent = unmatched_df[unmatched_df['COMPLETENESS_SCORE'] >= 0.9]
+            good = unmatched_df[(unmatched_df['COMPLETENESS_SCORE'] >= 0.7) & (unmatched_df['COMPLETENESS_SCORE'] < 0.9)]
+            fair = unmatched_df[(unmatched_df['COMPLETENESS_SCORE'] >= 0.5) & (unmatched_df['COMPLETENESS_SCORE'] < 0.7)]
+            poor = unmatched_df[unmatched_df['COMPLETENESS_SCORE'] < 0.5]
+            
+            st.success(f"🟢 Excellent (≥90%): {len(excellent):,} records")
+            st.info(f"🔵 Good (70-89%): {len(good):,} records")
+            st.warning(f"🟡 Fair (50-69%): {len(fair):,} records")
+            st.error(f"🔴 Poor (<50%): {len(poor):,} records")
+        else:
+            st.info("Completeness score not available")
+    
+    with col2:
+        st.markdown("### Common Issues")
+        
+        # Field-specific analysis
+        total = len(unmatched_df)
+        
+        if 'HAS_STREET' in unmatched_df.columns:
+            missing_street = (~unmatched_df['HAS_STREET']).sum()
+            st.write(f"**Missing Street Name:** {missing_street:,} ({missing_street/total*100:.1f}%)")
+        
+        if 'HAS_HOUSE' in unmatched_df.columns:
+            missing_house = (~unmatched_df['HAS_HOUSE']).sum()
+            st.write(f"**Missing House Number:** {missing_house:,} ({missing_house/total*100:.1f}%)")
+        
+        if 'HAS_BUILDING' in unmatched_df.columns:
+            missing_building = (~unmatched_df['HAS_BUILDING']).sum()
+            st.write(f"**Missing Building:** {missing_building:,} ({missing_building/total*100:.1f}%)")
+        
+        # Additional analysis
+        if 'FULL_ADDRESS' in unmatched_df.columns:
+            empty_normalized = unmatched_df[unmatched_df['FULL_ADDRESS'].str.strip() == '']
+            st.write(f"**Empty Normalized Address:** {len(empty_normalized):,} ({len(empty_normalized)/total*100:.1f}%)")
+        else:
+            st.info("Address analysis not available")
+
+
+def render_unmatched_addresses_filters(unmatched_df):
+    """Render filters for unmatched addresses"""
+    if unmatched_df is None or unmatched_df.empty:
+        return unmatched_df
+    
+    st.subheader("🔧 Filters")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        # Completeness filter - only show if column exists
+        if 'COMPLETENESS_SCORE' in unmatched_df.columns:
+            completeness_options = st.multiselect(
+                "Completeness Level",
+                options=["Excellent (≥90%)", "Good (70-89%)", "Fair (50-69%)", "Poor (<50%)"],
+                default=["Excellent (≥90%)", "Good (70-89%)", "Fair (50-69%)", "Poor (<50%)"]
+            )
+        else:
+            completeness_options = []
+            st.info("Completeness filter not available")
+    
+    with col2:
+        # Missing data filter - only show relevant options
+        filter_options = ["All Records"]
+        if 'HAS_STREET' in unmatched_df.columns:
+            filter_options.append("Missing Street")
+        if 'HAS_HOUSE' in unmatched_df.columns:
+            filter_options.append("Missing House")
+        if 'HAS_BUILDING' in unmatched_df.columns:
+            filter_options.append("Missing Building")
+        if 'IS_COMPLETE' in unmatched_df.columns:
+            filter_options.append("Complete Records Only")
+        
+        missing_data_filter = st.selectbox(
+            "Missing Data Filter",
+            options=filter_options
+        )
+    
+    with col3:
+        # Street name search
+        street_search = st.text_input("Search Street Name", "")
+    
+    # Apply filters
+    filtered_df = unmatched_df.copy()
+    
+    # Completeness filter
+    if completeness_options and 'COMPLETENESS_SCORE' in filtered_df.columns:
+        completeness_mask = pd.Series(False, index=filtered_df.index)
+        if "Excellent (≥90%)" in completeness_options:
+            completeness_mask |= filtered_df['COMPLETENESS_SCORE'] >= 0.9
+        if "Good (70-89%)" in completeness_options:
+            completeness_mask |= (filtered_df['COMPLETENESS_SCORE'] >= 0.7) & (filtered_df['COMPLETENESS_SCORE'] < 0.9)
+        if "Fair (50-69%)" in completeness_options:
+            completeness_mask |= (filtered_df['COMPLETENESS_SCORE'] >= 0.5) & (filtered_df['COMPLETENESS_SCORE'] < 0.7)
+        if "Poor (<50%)" in completeness_options:
+            completeness_mask |= filtered_df['COMPLETENESS_SCORE'] < 0.5
+        
+        filtered_df = filtered_df[completeness_mask]
+    
+    # Missing data filter
+    if missing_data_filter == "Missing Street" and 'HAS_STREET' in filtered_df.columns:
+        filtered_df = filtered_df[~filtered_df['HAS_STREET']]
+    elif missing_data_filter == "Missing House" and 'HAS_HOUSE' in filtered_df.columns:
+        filtered_df = filtered_df[~filtered_df['HAS_HOUSE']]
+    elif missing_data_filter == "Missing Building" and 'HAS_BUILDING' in filtered_df.columns:
+        filtered_df = filtered_df[~filtered_df['HAS_BUILDING']]
+    elif missing_data_filter == "Complete Records Only" and 'IS_COMPLETE' in filtered_df.columns:
+        filtered_df = filtered_df[filtered_df['IS_COMPLETE']]
+    
+    # Street search filter
+    if street_search and 'STREET_NAME' in filtered_df.columns:
+        street_mask = filtered_df['STREET_NAME'].str.contains(street_search, case=False, na=False)
+        filtered_df = filtered_df[street_mask]
+    
+    return filtered_df
+
+
+def render_unmatched_addresses_table(filtered_df):
+    """Render unmatched addresses table with pagination"""
+    if filtered_df is None or filtered_df.empty:
+        st.info("No unmatched addresses match the current filters")
+        return
+    
+    st.subheader(f"📋 Unmatched Addresses ({len(filtered_df):,} records)")
+    
+    # Pagination
+    page_size = 50
+    total_pages = (len(filtered_df) - 1) // page_size + 1
+    
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        page = st.number_input("Page", min_value=1, max_value=total_pages, value=1) - 1
+    with col2:
+        st.metric("Total Pages", total_pages)
+    
+    # Calculate pagination
+    start_idx = page * page_size
+    end_idx = start_idx + page_size
+    page_df = filtered_df.iloc[start_idx:end_idx]
+    
+    # Select columns for display based on what's available
+    base_columns = ['STREET_NAME', 'HOUSE', 'BUILDING']
+    analysis_columns = ['COMPLETENESS_SCORE', 'HAS_STREET', 'HAS_HOUSE', 'HAS_BUILDING']
+    
+    display_columns = []
+    for col in base_columns:
+        if col in page_df.columns:
+            display_columns.append(col)
+    
+    # Add FULL_ADDRESS if available
+    if 'FULL_ADDRESS' in page_df.columns:
+        display_columns.append('FULL_ADDRESS')
+    
+    # Add analysis columns if available
+    for col in analysis_columns:
+        if col in page_df.columns:
+            display_columns.append(col)
+    
+    if not display_columns:
+        st.error("No displayable columns found")
+        return
+    
+    # Create display dataframe
+    display_df = page_df[display_columns].copy()
+    
+    # Format completeness score as percentage if available
+    if 'COMPLETENESS_SCORE' in display_df.columns:
+        display_df['COMPLETENESS_SCORE'] = display_df['COMPLETENESS_SCORE'].apply(lambda x: f"{x:.1%}")
+    
+    # Style the dataframe
+    def highlight_completeness(val):
+        if isinstance(val, str) and '%' in val:
+            pct = float(val.replace('%', '')) / 100
+            if pct >= 0.9:
+                return 'background-color: #d4edda'
+            elif pct >= 0.7:
+                return 'background-color: #d1ecf1'
+            elif pct >= 0.5:
+                return 'background-color: #fff3cd'
+            else:
+                return 'background-color: #f8d7da'
+        return ''
+    
+    def highlight_boolean(val):
+        if val is True:
+            return 'background-color: #d4edda'
+        elif val is False:
+            return 'background-color: #f8d7da'
+        return ''
+    
+    # Apply styling
+    styled_df = display_df.style
+    
+    # Apply completeness highlighting if column exists
+    if 'COMPLETENESS_SCORE' in display_df.columns:
+        styled_df = styled_df.applymap(highlight_completeness, subset=['COMPLETENESS_SCORE'])
+    
+    # Apply boolean highlighting if columns exist
+    boolean_columns = [col for col in ['HAS_STREET', 'HAS_HOUSE', 'HAS_BUILDING'] if col in display_df.columns]
+    if boolean_columns:
+        styled_df = styled_df.applymap(highlight_boolean, subset=boolean_columns)
+    
+    st.dataframe(styled_df, use_container_width=True)
+    
+    # Show pagination info
+    st.info(f"Showing records {start_idx + 1:,} to {min(end_idx, len(filtered_df)):,} of {len(filtered_df):,}")
+
+

@@ -41,7 +41,7 @@ def create_match_quality_chart(matches_df):
 
     # Matches over time (if timestamp available)
     if 'MATCH_TIMESTAMP' in matches_df.columns:
-        matches_df['MATCH_HOUR'] = pd.to_datetime(matches_df['MATCH_TIMESTAMP']).dt.hour
+        matches_df['MATCH_HOUR'] = pd.to_datetime(matches_df['MATCH_TIMESTAMP'], format='ISO8601').dt.hour
         hourly_counts = matches_df['MATCH_HOUR'].value_counts().sort_index()
         fig.add_trace(
             go.Bar(x=hourly_counts.index, y=hourly_counts.values, name='Hourly Matches'),
@@ -189,7 +189,7 @@ def create_performance_timeline_chart(matches_df):
         return None
 
     # Convert timestamp to datetime
-    matches_df['MATCH_DATETIME'] = pd.to_datetime(matches_df['MATCH_TIMESTAMP'])
+    matches_df['MATCH_DATETIME'] = pd.to_datetime(matches_df['MATCH_TIMESTAMP'], format='ISO8601')
     
     # Group by minute for timeline
     matches_df['MATCH_MINUTE'] = matches_df['MATCH_DATETIME'].dt.floor('1min')
@@ -404,7 +404,7 @@ def create_advanced_matching_analysis(matches_df):
 
     # Match Success Rate by Hour (if timestamp available)
     if 'MATCH_TIMESTAMP' in matches_df.columns:
-        matches_df['MATCH_HOUR'] = pd.to_datetime(matches_df['MATCH_TIMESTAMP']).dt.hour
+        matches_df['MATCH_HOUR'] = pd.to_datetime(matches_df['MATCH_TIMESTAMP'], format='ISO8601').dt.hour
         hourly_counts = matches_df['MATCH_HOUR'].value_counts().sort_index()
         fig.add_trace(
             go.Bar(

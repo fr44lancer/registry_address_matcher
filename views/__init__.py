@@ -15,9 +15,12 @@ from .ui_components import (
     render_quality_report_summary,
     render_detailed_statistics,
     render_unmatched_analysis,
-    render_export_options,
     render_recommendations,
-    render_summary_report
+    render_summary_report,
+    render_unmatched_addresses_summary,
+    render_unmatched_data_quality_analysis,
+    render_unmatched_addresses_filters,
+    render_unmatched_addresses_table
 )
 
 from .visualizations import (
@@ -38,7 +41,6 @@ from .duplicates_view import (
     render_duplicates_table,
     render_duplicates_analysis,
     render_resolution_suggestions,
-    render_duplicates_export,
     render_duplicates_help,
     create_duplicates_overview_chart
 )
@@ -60,9 +62,12 @@ __all__ = [
     'render_quality_report_summary',
     'render_detailed_statistics',
     'render_unmatched_analysis',
-    'render_export_options',
     'render_recommendations',
     'render_summary_report',
+    'render_unmatched_addresses_summary',
+    'render_unmatched_data_quality_analysis',
+    'render_unmatched_addresses_filters',
+    'render_unmatched_addresses_table',
     'create_match_quality_chart',
     'create_data_quality_dashboard',
     'create_score_distribution_chart',
@@ -77,7 +82,6 @@ __all__ = [
     'render_duplicates_table',
     'render_duplicates_analysis',
     'render_resolution_suggestions',
-    'render_duplicates_export',
     'render_duplicates_help',
     'create_duplicates_overview_chart'
 ]

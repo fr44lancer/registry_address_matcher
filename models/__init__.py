@@ -1,7 +1,6 @@
 from .address_models import (
     AddressNormalizer,
     AdvancedAddressMatcher,
-    load_registry_data,
     load_registry_data_from_csv,
     preprocess_registries,
     analyze_data_quality
@@ -15,7 +14,6 @@ from .duplicate_models import (
 __all__ = [
     'AddressNormalizer',
     'AdvancedAddressMatcher',
-    'load_registry_data',
     'load_registry_data_from_csv',
     'preprocess_registries',
     'analyze_data_quality',
