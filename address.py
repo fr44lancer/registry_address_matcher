@@ -117,11 +117,19 @@ def load_registry_data(registry_name, table_name, _engine):
         return None
 
 
+def load_registry_data_from_csv(source: str, file_path: str) -> pd.DataFrame:
+    try:
+        df = pd.read_csv(file_path)
+        st.success(f"{source} data loaded successfully from CSV")
+        return df
+    except Exception as e:
+        st.error(f"Failed to load {source} data: {e}")
+        return pd.DataFrame()
+
 # ---------------- Advanced Text Normalization ----------------
 
 
-import re
-import pandas as pd
+
 
 class AddressNormalizer:
     def __init__(self):
@@ -1002,8 +1010,14 @@ def main():
 
         # Load data
         with st.spinner("Loading registry data..."):
-            spr_df = load_registry_data("SPR", spr_table, engine)
-            cad_df = load_registry_data("Cadastre", cad_table, engine)
+            # spr_df = load_registry_data("SPR", spr_table, engine)
+            # cad_df = load_registry_data("Cadastre", cad_table, engine)
+
+            spr_csv = "data/spr.csv"
+            cad_csv = "data/cadastre.csv"
+
+            spr_df = load_registry_data_from_csv("SPR", spr_csv)
+            cad_df = load_registry_data_from_csv("Cadastre", cad_csv)
 
         if spr_df is None or cad_df is None:
             st.error("Failed to load registry data")
@@ -1228,7 +1242,7 @@ def main():
                     overall_status.text("🎉 All phases completed successfully!")
 
                     # Display comprehensive summary
-                    st.balloons()
+                    # st.balloons()
 
                     summary_col1, summary_col2, summary_col3, summary_col4 = st.columns(4)
                     with summary_col1:
