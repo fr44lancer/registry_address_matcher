@@ -9,12 +9,13 @@ from typing import Dict, Any
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 # Import MVC components
-from models import analyze_data_quality, preprocess_registries, load_registry_data_from_csv
+from models import analyze_data_quality, preprocess_registries, load_registry_data_from_csv, get_unmatched_street_names
 from views import (
     configure_page, apply_custom_css, render_main_header,
     render_data_overview_metrics, render_sample_data_preview,
     render_interactive_match_explorer, render_manual_review_interface,
-    render_combined_unmatched_summary, render_registry_selector, render_unmatched_addresses_table_combined
+    render_combined_unmatched_summary, render_registry_selector, render_unmatched_addresses_table_combined,
+    render_unmatched_street_names_tab
 )
 from controllers.matching_controller import MatchingController
 from controllers.duplicates_controller import DuplicatesController
@@ -40,8 +41,8 @@ def main():
     
     
     # Create main tabs
-    tab1, tab2, tab3, tab5, tab6 = st.tabs(
-        ["📊 Data Overview", "🔍 Matching Process", "📈 Results Analysis",  "🔍 SPR Duplicates", "❌ Unmatched Addresses"]
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
+        ["📊 Data Overview", "🔍 Matching Process", "📈 Results Analysis", "🛣️ Street Names", "🔍 SPR Duplicates", "❌ Unmatched Addresses"]
     )
     
     with tab1:
@@ -52,6 +53,9 @@ def main():
     
     with tab3:
         render_results_analysis_tab(controller)
+    
+    with tab4:
+        render_street_names_tab(controller)
     
     with tab5:
         render_duplicates_tab(duplicates_controller)
@@ -115,6 +119,26 @@ def render_results_analysis_tab(controller: MatchingController):
     # Manual review interface
     render_manual_review_interface(filtered_matches)
 
+
+
+def render_street_names_tab(controller: MatchingController):
+    """Render the street names comparison tab"""
+    st.subheader("Street Names Comparison")
+    
+    # Check if data is loaded
+    if st.session_state.get('spr_processed') is None or st.session_state.get('cad_processed') is None:
+        st.warning("⚠️ Please load data in the **Data Overview** tab first")
+        return
+    
+    # Get the processed data
+    spr_processed = st.session_state.get('spr_processed')
+    cad_processed = st.session_state.get('cad_processed')
+    
+    # Get unmatched street names
+    spr_missing_df, cad_missing_df = get_unmatched_street_names(spr_processed, cad_processed)
+    
+    # Render the comparison
+    render_unmatched_street_names_tab(spr_missing_df, cad_missing_df)
 
 
 def render_duplicates_tab(duplicates_controller: DuplicatesController):

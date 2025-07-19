@@ -3,7 +3,8 @@ from .address_models import (
     AdvancedAddressMatcher,
     load_registry_data_from_csv,
     preprocess_registries,
-    analyze_data_quality
+    analyze_data_quality,
+    get_unmatched_street_names
 )
 
 from .duplicate_models import (
@@ -16,6 +17,8 @@ __all__ = [
     'AdvancedAddressMatcher',
     'load_registry_data_from_csv',
     'preprocess_registries',
+    'analyze_data_quality',
+    'get_unmatched_street_names',
     'SPRDuplicateDetector',
     'DuplicateDataProcessor'
 ]

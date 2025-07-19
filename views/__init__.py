@@ -10,7 +10,8 @@ from .ui_components import (
     render_manual_review_interface,
     render_combined_unmatched_summary,
     render_registry_selector,
-    render_unmatched_addresses_table_combined
+    render_unmatched_addresses_table_combined,
+    render_unmatched_street_names_tab
 )
 
 from .visualizations import (
@@ -42,6 +43,7 @@ __all__ = [
     'render_combined_unmatched_summary',
     'render_registry_selector',
     'render_unmatched_addresses_table_combined',
+    'render_unmatched_street_names_tab',
     'create_street_analysis_chart',
     'create_quality_metrics_dashboard',
     'create_advanced_matching_analysis',

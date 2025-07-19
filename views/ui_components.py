@@ -101,8 +101,13 @@ def render_sample_data_preview(spr_processed, cad_processed):
 
     with col2:
         st.subheader("Cadastre Sample Data")
-        st.dataframe(
-            cad_processed[['ADDRESS_ID', 'STREET_NAME', 'HOUSE', 'BUILDING', 'FULL_ADDRESS', 'COMPLETENESS_SCORE']].head(10))
+        # Include SUB_STREET_NAME if it exists in the Cadastre data
+        cad_columns = ['ADDRESS_ID', 'STREET_NAME']
+        if 'SUB_STREET_NAME' in cad_processed.columns:
+            cad_columns.append('SUB_STREET_NAME')
+        cad_columns.extend(['HOUSE', 'BUILDING', 'FULL_ADDRESS', 'COMPLETENESS_SCORE'])
+        
+        st.dataframe(cad_processed[cad_columns].head(10))
 
 
 def render_matching_controls():
@@ -236,34 +241,238 @@ def render_interactive_match_explorer(matches_df):
 
 
 def render_manual_review_interface(filtered_matches):
-    """Render manual review interface"""
-    st.subheader("Manual Review Interface")
+    """Enhanced manual review interface with detailed comparison tools"""
+    st.subheader("🔍 Enhanced Manual Review Interface")
 
-    if len(filtered_matches) > 0:
+    if len(filtered_matches) == 0:
+        st.info("No matches available for review.")
+        return
+
+    # Match selection with enhanced preview
+    st.markdown("### Select Match to Review")
+    
+    # Initialize session state for navigation
+    if 'manual_review_idx' not in st.session_state:
+        st.session_state.manual_review_idx = 0
+    
+    # Ensure index is within bounds
+    if st.session_state.manual_review_idx >= len(filtered_matches):
+        st.session_state.manual_review_idx = len(filtered_matches) - 1
+    if st.session_state.manual_review_idx < 0:
+        st.session_state.manual_review_idx = 0
+    
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        def format_match_option(x):
+            match = filtered_matches.iloc[x]
+            spr_addr = match.get('ORIGINAL_FULL_ADDRESS_SPR', 'N/A')
+            cad_addr = match.get('ORIGINAL_FULL_ADDRESS_CAD', 'N/A')
+            score = match.get('MATCH_SCORE', 0)
+            
+            # Truncate long addresses for dropdown readability
+            max_length = 40
+            if len(spr_addr) > max_length:
+                spr_addr = spr_addr[:max_length] + "..."
+            if len(cad_addr) > max_length:
+                cad_addr = cad_addr[:max_length] + "..."
+            
+            return f"Match {x + 1}: {spr_addr} ↔ {cad_addr} (Score: {score})"
+        
         review_idx = st.selectbox(
-            "Select match to review",
+            "Choose match",
             range(len(filtered_matches)),
-            format_func=lambda x: f"Match {x + 1}: {filtered_matches.iloc[x]['STREET_NAME_SPR']} → {filtered_matches.iloc[x]['STREET_NAME_CAD']} (Score: {filtered_matches.iloc[x]['MATCH_SCORE']})"
+            format_func=format_match_option,
+            index=st.session_state.manual_review_idx,
+            key="manual_review_selectbox"
         )
+        
+        # Update session state when selectbox changes
+        if review_idx != st.session_state.manual_review_idx:
+            st.session_state.manual_review_idx = review_idx
+    
+    with col2:
+        st.metric("Total Matches", len(filtered_matches))
+        st.metric("Current", f"{review_idx + 1} of {len(filtered_matches)}")
 
-        if review_idx is not None:
-            review_match = filtered_matches.iloc[review_idx]
+    if review_idx is not None:
+        review_match = filtered_matches.iloc[review_idx]
+        
+        # Match quality assessment
+        score = review_match.get('MATCH_SCORE', 0)
+        match_type = review_match.get('MATCH_TYPE', 'Unknown')
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            if score >= 95:
+                st.success(f"🟢 Excellent Match: {score}")
+            elif score >= 85:
+                st.info(f"🔵 Good Match: {score}")
+            elif score >= 70:
+                st.warning(f"🟡 Fair Match: {score}")
+            else:
+                st.error(f"🔴 Poor Match: {score}")
+        
+        with col2:
+            st.info(f"**Match Type:** {match_type}")
+        
+        with col3:
+            completeness_spr = review_match.get('COMPLETENESS_SPR', 0)
+            completeness_cad = review_match.get('COMPLETENESS_CAD', 0)
+            avg_completeness = (completeness_spr + completeness_cad) / 2
+            st.metric("Avg Completeness", f"{avg_completeness:.1%}")
 
-            col1, col2 = st.columns(2)
+        st.divider()
 
-            with col1:
-                st.subheader("SPR Record")
-                st.write(f"**Street:** {review_match['STREET_NAME_SPR']}")
-                st.write(f"**House:** {review_match['HOUSE_SPR']}")
-                st.write(f"**Building:** {review_match['BUILDING_SPR']}")
-                st.write(f"**Full Address:** {review_match['FULL_ADDRESS_SPR']}")
+        # Detailed record comparison
+        st.markdown("### 📋 Detailed Record Comparison")
+        
+        # Address IDs section
+        id_col1, id_col2 = st.columns(2)
+        with id_col1:
+            st.markdown("#### 📋 SPR Address ID")
+            st.code(review_match.get('ADDRESS_ID_SPR', 'Not Available'), language=None)
+        with id_col2:
+            st.markdown("#### 🏛️ Cadastre Address ID")
+            st.code(review_match.get('ADDRESS_ID_CAD', 'Not Available'), language=None)
 
-            with col2:
-                st.subheader("Cadastre Record")
-                st.write(f"**Street:** {review_match['STREET_NAME_CAD']}")
-                st.write(f"**House:** {review_match['HOUSE_CAD']}")
-                st.write(f"**Building:** {review_match['BUILDING_CAD']}")
-                st.write(f"**Full Address:** {review_match['FULL_ADDRESS_CAD']}")
+        # Original vs Normalized comparison
+        comparison_tabs = st.tabs(["📝 Original Data", "🔧 Normalized Data", "📊 Detailed Analysis"])
+        
+        with comparison_tabs[0]:
+            st.markdown("#### Original Address Components")
+            orig_col1, orig_col2 = st.columns(2)
+            
+            with orig_col1:
+                st.markdown("**📋 SPR Original**")
+                st.write(f"**Street:** {review_match.get('ORIGINAL_STREET_NAME_SPR', 'N/A')}")
+                st.write(f"**House:** {review_match.get('HOUSE_SPR', 'N/A')}")
+                st.write(f"**Building:** {review_match.get('BUILDING_SPR', 'N/A')}")
+                st.markdown("**Full Original Address:**")
+                st.code(review_match.get('ORIGINAL_FULL_ADDRESS_SPR', 'N/A'), language=None)
+            
+            with orig_col2:
+                st.markdown("**🏛️ Cadastre Original**")
+                st.write(f"**Street:** {review_match.get('ORIGINAL_STREET_NAME_CAD', 'N/A')}")
+                sub_street = review_match.get('ORIGINAL_SUB_STREET_NAME_CAD', '')
+                if sub_street:
+                    st.write(f"**Sub-Street:** {sub_street}")
+                st.write(f"**House:** {review_match.get('HOUSE_CAD', 'N/A')}")
+                st.write(f"**Building:** {review_match.get('BUILDING_CAD', 'N/A')}")
+                st.markdown("**Full Original Address:**")
+                st.code(review_match.get('ORIGINAL_FULL_ADDRESS_CAD', 'N/A'), language=None)
+
+        with comparison_tabs[1]:
+            st.markdown("#### Normalized Address Components (Used for Matching)")
+            norm_col1, norm_col2 = st.columns(2)
+            
+            with norm_col1:
+                st.markdown("**📋 SPR Normalized**")
+                st.write(f"**Street:** {review_match.get('STREET_NAME_SPR', 'N/A')}")
+                st.write(f"**House:** {review_match.get('HOUSE_SPR', 'N/A')}")
+                st.write(f"**Building:** {review_match.get('BUILDING_SPR', 'N/A')}")
+                st.markdown("**Full Normalized Address:**")
+                st.code(review_match.get('NORMALIZED_FULL_ADDRESS_SPR', review_match.get('FULL_ADDRESS_SPR', 'N/A')), language=None)
+            
+            with norm_col2:
+                st.markdown("**🏛️ Cadastre Normalized**")
+                st.write(f"**Street:** {review_match.get('STREET_NAME_CAD', 'N/A')}")
+                sub_street_norm = review_match.get('SUB_STREET_NAME_CAD', '')
+                if sub_street_norm:
+                    st.write(f"**Sub-Street:** {sub_street_norm}")
+                st.write(f"**House:** {review_match.get('HOUSE_CAD', 'N/A')}")
+                st.write(f"**Building:** {review_match.get('BUILDING_CAD', 'N/A')}")
+                st.markdown("**Full Normalized Address:**")
+                st.code(review_match.get('NORMALIZED_FULL_ADDRESS_CAD', review_match.get('FULL_ADDRESS_CAD', 'N/A')), language=None)
+
+        with comparison_tabs[2]:
+            st.markdown("#### Match Analysis")
+            
+            # Component-by-component comparison
+            analysis_col1, analysis_col2 = st.columns(2)
+            
+            with analysis_col1:
+                st.markdown("**🔍 Component Comparison**")
+                
+                # Street comparison
+                spr_street = review_match.get('STREET_NAME_SPR', '')
+                cad_street = review_match.get('STREET_NAME_CAD', '')
+                if spr_street == cad_street:
+                    st.success("✅ Streets match exactly")
+                else:
+                    st.warning("⚠️ Streets differ")
+                    st.write(f"SPR: `{spr_street}`")
+                    st.write(f"CAD: `{cad_street}`")
+                
+                # Sub-street comparison (Cadastre only)
+                cad_sub_street = review_match.get('SUB_STREET_NAME_CAD', '')
+                if cad_sub_street:
+                    st.info("📍 Cadastre has sub-street")
+                    st.write(f"CAD Sub-Street: `{cad_sub_street}`")
+                else:
+                    st.info("📍 No sub-street in Cadastre")
+                
+                # House comparison
+                spr_house = str(review_match.get('HOUSE_SPR', ''))
+                cad_house = str(review_match.get('HOUSE_CAD', ''))
+                if spr_house == cad_house:
+                    st.success("✅ House numbers match")
+                else:
+                    st.warning("⚠️ House numbers differ")
+                    st.write(f"SPR: `{spr_house}`")
+                    st.write(f"CAD: `{cad_house}`")
+                
+                # Building comparison
+                spr_building = str(review_match.get('BUILDING_SPR', ''))
+                cad_building = str(review_match.get('BUILDING_CAD', ''))
+                if spr_building == cad_building:
+                    st.success("✅ Building numbers match")
+                else:
+                    st.warning("⚠️ Building numbers differ")
+                    st.write(f"SPR: `{spr_building}`")
+                    st.write(f"CAD: `{cad_building}`")
+            
+            with analysis_col2:
+                st.markdown("**📈 Quality Metrics**")
+                st.write(f"**SPR Completeness:** {review_match.get('COMPLETENESS_SPR', 0):.1%}")
+                st.write(f"**Cadastre Completeness:** {review_match.get('COMPLETENESS_CAD', 0):.1%}")
+                st.write(f"**Match Timestamp:** {review_match.get('MATCH_TIMESTAMP', 'N/A')}")
+                st.write(f"**Candidates Count:** {review_match.get('CANDIDATES_COUNT', 'N/A')}")
+                
+                # Character-level differences
+                st.markdown("**🔤 Character Differences**")
+                spr_full = review_match.get('NORMALIZED_FULL_ADDRESS_SPR', '')
+                cad_full = review_match.get('NORMALIZED_FULL_ADDRESS_CAD', '')
+                
+                if spr_full == cad_full:
+                    st.success("🎯 Perfect character match")
+                else:
+                    char_diff = abs(len(spr_full) - len(cad_full))
+                    st.write(f"Length difference: {char_diff} characters")
+                    
+                    # Show first few character differences
+                    min_len = min(len(spr_full), len(cad_full))
+                    diff_count = sum(1 for i in range(min_len) if spr_full[i] != cad_full[i])
+                    st.write(f"Character differences: {diff_count}")
+
+        st.divider()
+
+        # Navigation
+        st.markdown("### 🧭 Navigation")
+        st.caption("💡 Tip: Use the dropdown to jump to any match, or use the buttons below to navigate step by step")
+        nav_col1, nav_col2, nav_col3 = st.columns(3)
+        
+        with nav_col1:
+            if st.button("⬅️ Previous Match", disabled=(review_idx == 0), key="prev_match_btn"):
+                st.session_state.manual_review_idx = max(0, review_idx - 1)
+                st.rerun()
+        
+        with nav_col2:
+            st.write(f"Match {review_idx + 1} of {len(filtered_matches)}")
+        
+        with nav_col3:
+            if st.button("➡️ Next Match", disabled=(review_idx == len(filtered_matches) - 1), key="next_match_btn"):
+                st.session_state.manual_review_idx = min(len(filtered_matches) - 1, review_idx + 1)
+                st.rerun()
 
 
 
@@ -425,13 +634,14 @@ def render_unmatched_addresses_table_combined(spr_df, cad_df, registry_filter):
         with st.expander("ℹ️ Column Explanation", expanded=False):
             st.markdown("""
             **Original Data**: Shows data as it appears in the source database
-            - `STREET_NAME`, `HOUSE`, `BUILDING`: Original values from the database
+            - `STREET_NAME`, `SUB_STREET_NAME` (Cadastre only), `HOUSE`, `BUILDING`: Original values from the database
             
             **Normalized Data**: Shows how the address was processed for matching
-            - `STREET_NORM`, `HOUSE_NORM`, `BUILDING_NORM`: Normalized individual components
-            - `FULL_ADDRESS`: Complete normalized address string used for comparison
+            - `STREET_NORM`, `SUB_STREET_NORM` (Cadastre only), `HOUSE_NORM`, `BUILDING_NORM`: Normalized individual components
+            - `FULL_ADDRESS`: Complete normalized address string used for comparison (includes sub-street for Cadastre)
             
             The normalized values show exactly what string was compared against the other database.
+            Note: Cadastre addresses may include a sub-street component between street and house number.
             """)
         
         # Pagination for this registry
@@ -457,8 +667,18 @@ def render_unmatched_addresses_table_combined(spr_df, cad_df, registry_filter):
         page_df = df.iloc[start_idx:end_idx]
         
         # Select columns for display based on what's available
-        base_columns = ['ADDRESS_ID', 'STREET_NAME', 'HOUSE', 'BUILDING']
-        normalized_columns = ['STREET_NORM', 'HOUSE_NORM', 'BUILDING_NORM', 'FULL_ADDRESS']
+        base_columns = ['ADDRESS_ID', 'STREET_NAME']
+        # Add SUB_STREET_NAME if available (for Cadastre)
+        if 'SUB_STREET_NAME' in page_df.columns:
+            base_columns.append('SUB_STREET_NAME')
+        base_columns.extend(['HOUSE', 'BUILDING'])
+        
+        normalized_columns = ['STREET_NORM']
+        # Add SUB_STREET_NORM if available (for Cadastre)
+        if 'SUB_STREET_NORM' in page_df.columns:
+            normalized_columns.append('SUB_STREET_NORM')
+        normalized_columns.extend(['HOUSE_NORM', 'BUILDING_NORM', 'FULL_ADDRESS'])
+        
         analysis_columns = ['COMPLETENESS_SCORE', 'HAS_STREET', 'HAS_HOUSE', 'HAS_BUILDING']
         
         display_columns = []
@@ -488,9 +708,11 @@ def render_unmatched_addresses_table_combined(spr_df, cad_df, registry_filter):
         # Rename columns to be more descriptive
         column_renames = {
             'STREET_NAME': 'Street (Original)',
+            'SUB_STREET_NAME': 'Sub-Street (Original)',
             'HOUSE': 'House (Original)', 
             'BUILDING': 'Building (Original)',
             'STREET_NORM': 'Street (Normalized)',
+            'SUB_STREET_NORM': 'Sub-Street (Normalized)',
             'HOUSE_NORM': 'House (Normalized)',
             'BUILDING_NORM': 'Building (Normalized)', 
             'FULL_ADDRESS': 'Full Address (Normalized)',
@@ -549,6 +771,129 @@ def render_unmatched_addresses_table_combined(spr_df, cad_df, registry_filter):
         # Add separator between registries
         if len(display_data) > 1 and registry_name != display_data[-1][1]:
             st.divider()
+
+
+def render_unmatched_street_names_tab(spr_missing_df, cad_missing_df):
+    """Render unmatched street names comparison tab"""
+    st.subheader("🛣️ Unmatched Street Names Comparison")
+    
+    # Summary metrics
+    st.markdown("### 📊 Summary")
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        spr_count = len(spr_missing_df) if spr_missing_df is not None else 0
+        st.metric("Streets in SPR only", f"{spr_count:,}")
+    
+    with col2:
+        cad_count = len(cad_missing_df) if cad_missing_df is not None else 0
+        st.metric("Streets in Cadastre only", f"{cad_count:,}")
+    
+    with col3:
+        total_unmatched = spr_count + cad_count
+        st.metric("Total Unmatched", f"{total_unmatched:,}")
+    
+    if total_unmatched == 0:
+        st.success("🎉 Perfect! All street names are present in both registries.")
+        return
+    
+    # Add explanation
+    with st.expander("ℹ️ What does this show?", expanded=False):
+        st.markdown("""
+        This tab compares **unique street names** between the SPR and Cadastre registries:
+        
+        - **Streets in SPR only**: Street names that exist in SPR but are missing from Cadastre
+        - **Streets in Cadastre only**: Street names that exist in Cadastre but are missing from SPR
+        
+        These differences could be due to:
+        - Different naming conventions between registries
+        - Streets that exist in one registry but not the other
+        - Data entry variations or typos
+        - Historical name changes not reflected in both systems
+        
+        **Note**: This comparison uses normalized street names for accuracy.
+        """)
+    
+    # Search functionality
+    st.markdown("### 🔍 Search Street Names")
+    search_term = st.text_input("Search for a street name:", "", key="street_search")
+    
+    # Display tables side by side
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("#### 📋 Streets in SPR only (missing in Cadastre)")
+        
+        if spr_missing_df is not None and not spr_missing_df.empty:
+            # Apply search filter
+            display_spr = spr_missing_df.copy()
+            if search_term:
+                mask = display_spr['STREET_NAME'].str.contains(search_term, case=False, na=False)
+                display_spr = display_spr[mask]
+            
+            if not display_spr.empty:
+                # Pagination for SPR
+                page_size = 20
+                total_pages = max(1, (len(display_spr) - 1) // page_size + 1)
+                page_spr = st.number_input(
+                    "Page (SPR)", 
+                    min_value=1, 
+                    max_value=total_pages, 
+                    value=1,
+                    key="page_spr_streets"
+                ) - 1
+                
+                start_idx = page_spr * page_size
+                end_idx = start_idx + page_size
+                page_data = display_spr.iloc[start_idx:end_idx]
+                
+                st.dataframe(
+                    page_data.reset_index(drop=True), 
+                    use_container_width=True,
+                    hide_index=True
+                )
+                st.caption(f"Showing {start_idx + 1}-{min(end_idx, len(display_spr))} of {len(display_spr)} streets")
+            else:
+                st.info("No streets found matching the search term")
+        else:
+            st.info("No streets found in SPR that are missing in Cadastre")
+    
+    with col2:
+        st.markdown("#### 🏛️ Streets in Cadastre only (missing in SPR)")
+        
+        if cad_missing_df is not None and not cad_missing_df.empty:
+            # Apply search filter
+            display_cad = cad_missing_df.copy()
+            if search_term:
+                mask = display_cad['STREET_NAME'].str.contains(search_term, case=False, na=False)
+                display_cad = display_cad[mask]
+            
+            if not display_cad.empty:
+                # Pagination for Cadastre
+                page_size = 20
+                total_pages = max(1, (len(display_cad) - 1) // page_size + 1)
+                page_cad = st.number_input(
+                    "Page (Cadastre)", 
+                    min_value=1, 
+                    max_value=total_pages, 
+                    value=1,
+                    key="page_cad_streets"
+                ) - 1
+                
+                start_idx = page_cad * page_size
+                end_idx = start_idx + page_size
+                page_data = display_cad.iloc[start_idx:end_idx]
+                
+                st.dataframe(
+                    page_data.reset_index(drop=True), 
+                    use_container_width=True,
+                    hide_index=True
+                )
+                st.caption(f"Showing {start_idx + 1}-{min(end_idx, len(display_cad))} of {len(display_cad)} streets")
+            else:
+                st.info("No streets found matching the search term")
+        else:
+            st.info("No streets found in Cadastre that are missing in SPR")
 
 
 

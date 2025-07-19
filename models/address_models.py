@@ -24,10 +24,22 @@ class AddressNormalizer:
             r'\bրդ\.?',
             r'\bին\.?',
             r'\bՆՐԲ\.?',
+            r'\bնրբ\.?',
+            r'\bՆրբ\.?',
+            r'\bՇԱՐՔ\.?',
+            r'\bՇարք\.?',
+            r'\bշարք\.?',
+            r'\Անցղ\.?',
+            r'\bԱՆՑՂ\.?',
+            r'\bՓկղ\.?',
+            r'\bՓԿՂ\.?',
+            r'\bԱՆՑՂ\.?',
+            r'\bշարք\.?',
             r'\bԲՆ\.?',
             r'\bՃՂ\.?',
             r'\bՓ\.?',
             r'\bՊՈՂ\.?',
+            r'\bՊ\.?',
             r'\bԱՎ\.?',
             r'\bՃԱՄԲ\.?',
             r'\bՏՈՒՆ\.?',
@@ -37,8 +49,13 @@ class AddressNormalizer:
             r'\bՓԱԿ\.?',
             r'\bշարք\.?',
             r'\bթղմ\.?',
+            r'\bԹՂՄ\.?',
             r'\bթաղամասի\.?',
-            r'\bԹԵԼԱ\.?'
+            r'\bԹԵԼԱ\.?',
+            r'\bՃԱՆ\.?',
+            r'\bՇրջ\.?',
+            r'\bթ/ղ\.?',
+            r'\թղմ',
         ]
 
         # Normalize old and new keys in this mapping
@@ -113,12 +130,21 @@ class AddressNormalizer:
         text = text.replace('եվ', 'և')  # lowercase separate chars → ligature
         text = text.replace('Անտառավան', 'Անտառ')  # lowercase separate chars → ligature
         text = text.replace('ԱՆՏԱՌԱՎԱՆ', 'ԱՆՏԱՌ')  # lowercase separate chars → ligature
+        text = text.replace('ՀՐ․', 'ՀՐԱՊԱՐԱԿ')  # lowercase separate chars → ligature
+        text = text.replace('ՄՈՒՇ֊2', 'ՄՈՒՇ 2')  # lowercase separate chars → ligature
 
         # Now convert to uppercase (which will preserve the և ligature)
         text = text.upper()
+        
+        # Normalize Armenian ordinal numbers to Arabic numerals
+        # Patterns: 1-ին, 2-րդ, 3-րդ, etc. (handles various dash types)
+        text = re.sub(r'(\d+)[-֊‐‑‒–—―]?(ՐԴ|ՆԴ|ԻՆ|ԱՄ)\.?', r'\1', text, flags=re.IGNORECASE)
+        
         # Remove word ՄԱՐՇԱԼ (case-insensitive)
         text = re.sub(r'\bՄԱՐՇԱԼ\b', '', text, flags=re.IGNORECASE)
-        
+        text = re.sub(r'\bՇԱՐԼ\b', '', text, flags=re.IGNORECASE)
+        text = re.sub(r'\bՇԱՌԼ\b', '', text, flags=re.IGNORECASE)
+
         # Remove one-letter Armenian words (with or without dot, case-insensitive)
         text = re.sub(r'(?<!\S)[Ա-Ֆ]\.?(?!\S)', '', text, flags=re.IGNORECASE)
         
@@ -131,13 +157,20 @@ class AddressNormalizer:
         
         # Remove trailing Ի if present
         text = ' '.join([w[:-1] if w.endswith("Ի") else w for w in text.split()])
-        
+        text = ' '.join([w[:-2] if w.endswith("ՅԻ") else w for w in text.split()])
+        text = ' '.join([w[:-2] if w.endswith("ՈՒ") else w for w in text.split()])
+
         return re.sub(r'\s+', ' ', text).strip()
 
     def normalize_number_part(self, text):
         if pd.isna(text):
             return ""
         text = str(text).strip().upper()
+        
+        # Normalize Armenian ordinal numbers in house/building numbers
+        # Patterns: 1-ին, 2-րդ, 3-րդ, etc. (handles various dash types)
+        text = re.sub(r'(\d+)[-֊‐‑‒–—―]?(ՐԴ|ՆԴ|ԻՆ|ԱՄ)\.?', r'\1', text, flags=re.IGNORECASE)
+        
         return re.sub(r'[^\w/\-]', '', text)
 
     def normalize(self, text):
@@ -270,6 +303,7 @@ class AdvancedAddressMatcher:
     def _construct_original_full_address(self, row, registry_type):
         """Construct original full address from non-normalized components"""
         street = str(row.get("STREET_NAME", "")).strip()
+        sub_street = str(row.get("SUB_STREET_NAME", "")).strip() if registry_type == "CAD" else ""
         house = str(row.get("HOUSE", "")).strip()
         building = str(row.get("BUILDING", "")).strip()
         
@@ -280,8 +314,11 @@ class AdvancedAddressMatcher:
             if original_address:
                 return str(original_address).strip()
         
-        # Construct from components
-        components = [comp for comp in [street, house, building] if comp]
+        # Construct from components (include sub_street for Cadastre)
+        if registry_type == "CAD":
+            components = [comp for comp in [street, sub_street, house, building] if comp]
+        else:
+            components = [comp for comp in [street, house, building] if comp]
         return " ".join(components)
 
     def _create_match_record(self, spr_row, cad_row, score, match_type, candidates_count=1):
@@ -294,12 +331,14 @@ class AdvancedAddressMatcher:
             "FULL_ADDRESS_SPR": spr_row.get("FULL_ADDRESS", ""),
             "ADDRESS_ID_CAD": cad_row.get("ADDRESS_ID", ""),
             "STREET_NAME_CAD": cad_row.get("STREET_NAME", ""),
+            "SUB_STREET_NAME_CAD": cad_row.get("SUB_STREET_NAME", ""),
             "HOUSE_CAD": cad_row.get("HOUSE", ""),
             "BUILDING_CAD": cad_row.get("BUILDING", ""),
             "FULL_ADDRESS_CAD": cad_row.get("FULL_ADDRESS", ""),
             # Original street names (before normalization)
             "ORIGINAL_STREET_NAME_SPR": spr_row.get("STREET_NAME", ""),
             "ORIGINAL_STREET_NAME_CAD": cad_row.get("STREET_NAME", ""),
+            "ORIGINAL_SUB_STREET_NAME_CAD": cad_row.get("SUB_STREET_NAME", ""),
             # Original full addresses (constructed from original components)
             "ORIGINAL_FULL_ADDRESS_SPR": self._construct_original_full_address(spr_row, "SPR"),
             "ORIGINAL_FULL_ADDRESS_CAD": self._construct_original_full_address(cad_row, "CAD"),
@@ -340,30 +379,51 @@ def preprocess_registries(_spr_df, _cad_df):
         processed['STREET_NAME'] = processed['STREET_NAME'].fillna('')
         processed['HOUSE'] = processed['HOUSE'].fillna('')
         processed['BUILDING'] = processed['BUILDING'].fillna('')
+        
+        # Handle SUB_STREET_NAME for Cadastre registry
+        if 'SUB_STREET_NAME' in processed.columns:
+            processed['SUB_STREET_NAME'] = processed['SUB_STREET_NAME'].fillna('')
+        else:
+            processed['SUB_STREET_NAME'] = ''
 
         # Normalize fields
         processed['STREET_NORM'] = processed['STREET_NAME'].apply(normalizer.normalize)
+        processed['SUB_STREET_NORM'] = processed['SUB_STREET_NAME'].apply(normalizer.normalize)
         processed['HOUSE_NORM'] = processed['HOUSE'].apply(normalizer.normalize_number_part)
         processed['BUILDING_NORM'] = processed['BUILDING'].apply(normalizer.normalize_number_part)
 
-        # Create composite addresses
+        # Create composite addresses (STREET + SUB_STREET + HOUSE + BUILDING)
         processed['FULL_ADDRESS'] = (
                 processed['STREET_NORM'] + " " +
+                processed['SUB_STREET_NORM'] + " " +
                 processed['HOUSE_NORM'] + " " +
                 processed['BUILDING_NORM']
         ).str.strip()
+        
+        # Clean up multiple spaces
+        processed['FULL_ADDRESS'] = processed['FULL_ADDRESS'].str.replace(r'\s+', ' ', regex=True).str.strip()
 
         # Create search keys
         processed['SEARCH_KEY'] = (
                 processed['STREET_NORM'] + "_" + processed['HOUSE_NORM']
         )
 
-        # Data quality metrics
-        processed['COMPLETENESS_SCORE'] = (
-                                                  processed['STREET_NAME'].notna().astype(int) +
-                                                  processed['HOUSE'].notna().astype(int) +
-                                                  processed['BUILDING'].notna().astype(int)
-                                          ) / 3
+        # Data quality metrics (include SUB_STREET_NAME for Cadastre)
+        if 'SUB_STREET_NAME' in df.columns and registry_name == "Cadastre":
+            # For Cadastre: STREET_NAME + SUB_STREET_NAME + HOUSE + BUILDING
+            processed['COMPLETENESS_SCORE'] = (
+                processed['STREET_NAME'].notna().astype(int) +
+                processed['SUB_STREET_NAME'].notna().astype(int) +
+                processed['HOUSE'].notna().astype(int) +
+                processed['BUILDING'].notna().astype(int)
+            ) / 4
+        else:
+            # For SPR: STREET_NAME + HOUSE + BUILDING
+            processed['COMPLETENESS_SCORE'] = (
+                processed['STREET_NAME'].notna().astype(int) +
+                processed['HOUSE'].notna().astype(int) +
+                processed['BUILDING'].notna().astype(int)
+            ) / 3
 
         return processed
 
@@ -386,3 +446,32 @@ def analyze_data_quality(df, registry_name):
     }
 
     return quality_metrics
+
+
+def get_unmatched_street_names(spr_processed, cad_processed, matched_df=None):
+    """Get unmatched street names between SPR and Cadastre registries"""
+    
+    # Get unique street names from both registries
+    spr_streets = set(spr_processed['STREET_NORM'].dropna().unique())
+    cad_streets = set(cad_processed['STREET_NORM'].dropna().unique())
+    
+    # Remove empty strings
+    spr_streets.discard('')
+    cad_streets.discard('')
+    
+    # Find streets in SPR but missing in Cadastre
+    spr_only_streets = spr_streets - cad_streets
+    
+    # Find streets in Cadastre but missing in SPR
+    cad_only_streets = cad_streets - spr_streets
+    
+    # Create dataframes for display
+    spr_missing_df = pd.DataFrame({
+        'STREET_NAME': sorted(list(spr_only_streets))
+    }) if spr_only_streets else pd.DataFrame(columns=['STREET_NAME'])
+    
+    cad_missing_df = pd.DataFrame({
+        'STREET_NAME': sorted(list(cad_only_streets))
+    }) if cad_only_streets else pd.DataFrame(columns=['STREET_NAME'])
+    
+    return spr_missing_df, cad_missing_df
