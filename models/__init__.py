@@ -16,7 +16,6 @@ __all__ = [
     'AdvancedAddressMatcher',
     'load_registry_data_from_csv',
     'preprocess_registries',
-    'analyze_data_quality',
     'SPRDuplicateDetector',
     'DuplicateDataProcessor'
 ]

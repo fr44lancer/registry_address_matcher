@@ -13,8 +13,7 @@ from models.address_models import (
 )
 from views.ui_components import (
     render_matching_controls,
-    render_matching_results_summary,
-    render_match_type_distribution
+    render_matching_results_summary
 )
 
 logger = logging.getLogger(__name__)
@@ -37,7 +36,7 @@ class MatchingController:
         if "cad_processed" not in st.session_state:
             st.session_state.cad_processed = None
 
-    def load_data(self, config: Dict[str, Any]) -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame]]:
+    def load_data(self) -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame]]:
         """Load and preprocess registry data"""
         try:
             with st.spinner("Loading registry data..."):
@@ -71,30 +70,22 @@ class MatchingController:
         """Get data quality metrics for both registries"""
         spr_quality = analyze_data_quality(spr_processed, "SPR")
         cad_quality = analyze_data_quality(cad_processed, "Cadastre")
-        
+
         return {
             'spr_quality': spr_quality,
             'cad_quality': cad_quality
         }
 
-    def handle_matching_process(self, config: Dict[str, Any], spr_processed: pd.DataFrame, cad_processed: pd.DataFrame):
+    def handle_matching_process(self, spr_processed: pd.DataFrame, cad_processed: pd.DataFrame):
         """Handle the complete matching process - exact matching only"""
         try:
             # Reset stop flag
             st.session_state.stop_requested = False
 
-            # Determine processing configuration
-            use_all_records = config['use_all_records']
-            max_records = config['max_records']
-
-            if use_all_records:
-                processing_records = len(spr_processed)
-                matcher = AdvancedAddressMatcher(spr_processed, cad_processed)
-                st.info(f"🔢 **Processing:** All {processing_records:,} SPR records using exact matching")
-            else:
-                processing_records = min(max_records, len(spr_processed))
-                matcher = AdvancedAddressMatcher(spr_processed, cad_processed, max_records)
-                st.info(f"🔢 **Processing:** {processing_records:,} of {len(spr_processed):,} SPR records using exact matching")
+            # Process all records using exact matching
+            processing_records = len(spr_processed)
+            matcher = AdvancedAddressMatcher(spr_processed, cad_processed)
+            st.info(f"🔢 **Processing:** All {processing_records:,} SPR records using exact matching")
 
             # Initialize progress tracking
             overall_start_time = time.time()
@@ -171,7 +162,7 @@ class MatchingController:
         st.session_state.cad_processed = None
         st.rerun()
 
-    def render_matching_process_tab(self, config: Dict[str, Any]):
+    def render_matching_process_tab(self):
         """Render the matching process tab"""
         st.subheader("Address Matching Process")
 
@@ -185,7 +176,7 @@ class MatchingController:
 
         # Handle button clicks
         if start_button:
-            self.handle_matching_process(config, st.session_state.spr_processed, st.session_state.cad_processed)
+            self.handle_matching_process(st.session_state.spr_processed, st.session_state.cad_processed)
 
         if stop_button:
             self.handle_stop_request()
@@ -201,8 +192,6 @@ class MatchingController:
             # Render results summary
             render_matching_results_summary(matches_df, quality_metrics)
 
-            # Render match type distribution
-            render_match_type_distribution(matches_df)
 
     def get_matching_results(self) -> Optional[pd.DataFrame]:
         """Get current matching results"""
@@ -281,4 +270,69 @@ class MatchingController:
         unmatched_spr['HAS_BUILDING'] = unmatched_spr['BUILDING'].notna() & (unmatched_spr['BUILDING'].astype(str) != '')
         
         return unmatched_spr
+
+    def get_unmatched_cad_addresses(self) -> Optional[pd.DataFrame]:
+        """Get unmatched Cadastre addresses - only available after matching process"""
+        if st.session_state.cad_processed is None:
+            return None
+            
+        # Only show unmatched addresses if matching has been performed
+        matches_df = st.session_state.matching_results
+        if matches_df is None:
+            # No matching has been performed yet
+            return None
+            
+        cad_processed = st.session_state.cad_processed
+        
+        if matches_df.empty:
+            # If no matches found, all Cadastre addresses are unmatched
+            unmatched_cad = cad_processed.copy()
+        else:
+            # Debug: Let's see what we're working with
+            print(f"DEBUG CAD: matches_df has {len(matches_df)} rows")
+            print(f"DEBUG CAD: cad_processed has {len(cad_processed)} rows")
+            
+            # Get matched CAD IDs - handle both cases: with and without ADDRESS_ID
+            matched_cad_ids = set()
+            
+            if 'ADDRESS_ID' in cad_processed.columns:
+                # If CAD has ADDRESS_ID column, use it
+                matched_cad_ids = set(matches_df['ADDRESS_ID_CAD'].unique())
+                matched_cad_ids.discard('')  # Remove empty strings
+                unmatched_mask = ~cad_processed['ADDRESS_ID'].isin(matched_cad_ids)
+            else:
+                # If no ADDRESS_ID column, use FULL_ADDRESS matching
+                cad_ids_in_matches = matches_df['ADDRESS_ID_CAD'].unique()
+                print(f"DEBUG CAD: Sample ADDRESS_ID_CAD values: {cad_ids_in_matches[:10]}")
+                
+                if all(id_val == '' for id_val in cad_ids_in_matches):
+                    # ADDRESS_ID_CAD is empty, use FULL_ADDRESS_CAD to identify matched records
+                    matched_full_addresses = set(matches_df['FULL_ADDRESS_CAD'].unique())
+                    unmatched_mask = ~cad_processed['FULL_ADDRESS'].isin(matched_full_addresses)
+                else:
+                    # ADDRESS_ID_CAD has actual values, use them
+                    matched_cad_ids = set(cad_ids_in_matches)
+                    matched_cad_ids.discard('')  # Remove empty strings
+                    unmatched_mask = ~cad_processed.index.isin(matched_cad_ids)
+            
+            unmatched_cad = cad_processed[unmatched_mask].copy()
+            print(f"DEBUG CAD: After filtering, unmatched_cad has {len(unmatched_cad)} rows")
+        
+        # Ensure all required columns exist before adding analysis columns
+        if 'COMPLETENESS_SCORE' not in unmatched_cad.columns:
+            unmatched_cad['COMPLETENESS_SCORE'] = 0.0
+        if 'STREET_NAME' not in unmatched_cad.columns:
+            unmatched_cad['STREET_NAME'] = ''
+        if 'HOUSE' not in unmatched_cad.columns:
+            unmatched_cad['HOUSE'] = ''
+        if 'BUILDING' not in unmatched_cad.columns:
+            unmatched_cad['BUILDING'] = ''
+        
+        # Add analysis columns with safe operations
+        unmatched_cad['IS_COMPLETE'] = unmatched_cad['COMPLETENESS_SCORE'].fillna(0) >= 0.8
+        unmatched_cad['HAS_STREET'] = unmatched_cad['STREET_NAME'].notna() & (unmatched_cad['STREET_NAME'].astype(str) != '')
+        unmatched_cad['HAS_HOUSE'] = unmatched_cad['HOUSE'].notna() & (unmatched_cad['HOUSE'].astype(str) != '')
+        unmatched_cad['HAS_BUILDING'] = unmatched_cad['BUILDING'].notna() & (unmatched_cad['BUILDING'].astype(str) != '')
+        
+        return unmatched_cad
 

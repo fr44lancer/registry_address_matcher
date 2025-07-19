@@ -4,7 +4,6 @@ from collections import defaultdict, Counter
 import re
 import logging
 from datetime import datetime
-from sqlalchemy import create_engine, text
 # Removed rapidfuzz import - not needed for exact matching only
 import streamlit as st
 import time
@@ -37,6 +36,8 @@ class AddressNormalizer:
             r'\bՀող\.?',
             r'\bՓԱԿ\.?',
             r'\bշարք\.?',
+            r'\bթղմ\.?',
+            r'\bթաղամասի\.?',
             r'\bԹԵԼԱ\.?'
         ]
 
@@ -71,42 +72,73 @@ class AddressNormalizer:
             self._norm("Խաղաղության"): self._norm("Բագրատունյաց"),
             self._norm("Մարքսի"): self._norm("Ջիվանու"),
             self._norm("Ազիզբեկովի"): self._norm("Ն. Շնորհալու"),
-            self._norm("Էլեկտրո պրիբորնի 6-րդ շարք"): self._norm("Ա. Արմենյան փողոց"),
-            self._norm("Էլեկտրո պրիբորնի 10-րդ շարք"): self._norm("Ա. Գևորգյան փողոց"),
-            self._norm("Կիրովաբադյան փողոց"): self._norm("Ա. Թամանյան փողոց"),
-            self._norm("50 ամյակի անվան փողոց"): self._norm("Ա. Մանուկյան փողոց"),
-            self._norm("<<Անի>> թաղամաս 3-րդ փողոց"): self._norm("Ա. Շահինյան փողոց"),
-            self._norm("Հնոցավան 2-րդ շարք"): self._norm("Ա. Պետրոսյան փողոց"),
+            self._norm("Էլեկտրո պրիբորնի 6-րդ շարք"): self._norm("Ա. Արմենյան"),
+            self._norm("Էլեկտրո պրիբորնի 10-րդ շարք"): self._norm("Ա. Գևորգյան"),
+            self._norm("Կիրովաբադյան փողոց"): self._norm("Ա. Թամանյան"),
+            self._norm("50 ամյակի անվան փողոց"): self._norm("Ա. Մանուկյան"),
+            self._norm("<<Անի>> թաղամաս 3-րդ փողոց"): self._norm("Ա. Շահինյան"),
+            self._norm("Հնոցավան 2-րդ շարք"): self._norm("Ա. Պետրոսյան"),
             self._norm("Կոմսոմոլի փողոց"): self._norm("Ա. Վասիլյան փողոց"),
-            self._norm("Կեցխովելի փողոց"): self._norm("Արտակ եպիսկոպոս Սմբատյան փողոց"),
-            self._norm("Արվելաձե փողոց"): self._norm("Գարեգին Ա-ի փողոց"),
-            self._norm("Էլեկտրո պրիբորնի 8-րդ շարք"): self._norm("Թ. Մանդալյան փողոց"),
-            self._norm("Պողպատավան 3-րդ շարք"): self._norm("Ժ. Բ. Բարոնյան փողոց"),
-            self._norm("Կրուպսկայա փողոց"): self._norm("Խ. Դաշտենցի փողոց"),
-            self._norm("Քութաիսյան փողոց"): self._norm("Կ. Դեմիրճյան փողոց"),
-            self._norm("Պողպատավան 2-րդ շարք"): self._norm("Կ. Խաչատրյան փողոց"),
-            self._norm("Կույբիշևի փողոց"): self._norm("Հ. Մազմանյան փողոց"),
-            self._norm("Պիոներական փողոց"): self._norm("Հ. Մելքոնյան փողոց"),
-            self._norm("Պողպատավան 1-ին շարք"): self._norm("Հ. Պողոսյան փողոց"),
-            self._norm("Պողպատավան 4-րդ շարք"): self._norm("Հ. Ռասկատլյան փողոց"),
+            self._norm("Կեցխովելի փողոց"): self._norm("Արտակ եպիսկոպոս Սմբատյան"),
+            self._norm("Արվելաձե փողոց"): self._norm("Գարեգին Ա"),
+            self._norm("Էլեկտրո պրիբորնի 8-րդ շարք"): self._norm("Թ. Մանդալյան"),
+            self._norm("Պողպատավան 3-րդ շարք"): self._norm("Ժ. Բ. Բարոնյան"),
+            self._norm("Կրուպսկայա փողոց"): self._norm("Խ. Դաշտենցի"),
+            self._norm("Քութաիսյան փողոց"): self._norm("Կ. Դեմիրճյան"),
+            self._norm("Պողպատավան 2-րդ շարք"): self._norm("Կ. Խաչատրյան"),
+            self._norm("Կույբիշևի փողոց"): self._norm("Հ. Մազմանյան"),
+            self._norm("Պիոներական փողոց"): self._norm("Հ. Մելքոնյան"),
+            self._norm("Պողպատավան 1-ին շարք"): self._norm("Հ. Պողոսյան"),
+            self._norm("Պողպատավան 4-րդ շարք"): self._norm("Հ. Ռասկատլյան"),
             self._norm("Կատելնայա"): self._norm("Հնոցավանի 1-ին շարք"),
             self._norm("Պետ բարակներ"): self._norm("Ղ. Ղուկասյան փողոց"),
             self._norm("Մայիսյան փողոց"): self._norm("Մ. Մկրտչյան փողոց"),
-            self._norm("Էլեկտրո պրիբորնի 7-րդ շարք"): self._norm("Մ. Սարգսյան փողոց"),
+            self._norm("Էլեկտրո պրիբորնի 7-րդ շարք"): self._norm("Մ. Սարգսյան"),
             self._norm("Սվերդլովի փողոց"): self._norm("Ն. Ղորղանյան փողոց"),
-            self._norm("Աստղի հրապարակ"): self._norm("Շ. Ազնավուրի հրապարակ"),
-            self._norm("Ս. Մուսայելյան փողոց"): self._norm("Շ. Ազնավուրի հրապարակ"),
-            self._norm("Էլեկտրո պրիբորնի 11-րդ շարք"): self._norm("Ռ. Դանիելյան փողոց"),
-            self._norm("Օրջոնիկիձեի փողոց"): self._norm("Ս. Մատնիշյան փողոց"),
-            self._norm("Էնգելսի փողոց"): self._norm("Վ. Աճեմյան փողոց"),
-            self._norm("Կենտրոնական հրապարակ"): self._norm("Վարդանանց հրապարակ"),
-            self._norm("<<Անի>> թաղամաս 15-րդ փողոց"): self._norm("Ֆորալբերգի փողոց"),
+            self._norm("Աստղի հրապարակ"): self._norm("Շ. Ազնավուր"),
+            self._norm("Ս. Մուսայելյան փողոց"): self._norm("Շ. Ազնավուր"),
+            self._norm("Էլեկտրո պրիբորնի 11-րդ շարք"): self._norm("Ռ. Դանիելյան"),
+            self._norm("Օրջոնիկիձեի փողոց"): self._norm("Ս. Մատնիշյան"),
+            self._norm("Էնգելսի փողոց"): self._norm("Վ. Աճեմյան"),
+            self._norm("Կենտրոնական հրապարակ"): self._norm("Վարդանանց"),
+            self._norm("<<Անի>> թաղամաս 15-րդ փողոց"): self._norm("Ֆորալբերգի"),
         }
 
     def _norm(self, text):
+        text = str(text).strip()
+
+        # Normalize Armenian "and" BEFORE upper() to handle both cases
+        # Convert all forms to the ligature և for standardization
+        text = text.replace('ԵՎ', 'և')  # uppercase separate chars → ligature
+        text = text.replace('եվ', 'և')  # lowercase separate chars → ligature
+        text = text.replace('Անտառավան', 'Անտառ')  # lowercase separate chars → ligature
+        text = text.replace('ԱՆՏԱՌԱՎԱՆ', 'ԱՆՏԱՌ')  # lowercase separate chars → ligature
+
+        # Now convert to uppercase (which will preserve the և ligature)
+        text = text.upper()
+        # Remove word ՄԱՐՇԱԼ (case-insensitive)
+        text = re.sub(r'\bՄԱՐՇԱԼ\b', '', text, flags=re.IGNORECASE)
+        
+        # Remove one-letter Armenian words (with or without dot, case-insensitive)
+        text = re.sub(r'(?<!\S)[Ա-Ֆ]\.?(?!\S)', '', text, flags=re.IGNORECASE)
+        
+        # Remove suffixes
+        for suffix in self.armenian_suffixes:
+            text = re.sub(suffix, '', text, flags=re.IGNORECASE)
+        
+        # Strip unwanted punctuation (preserve / and -)
+        text = re.sub(r'[^\w\s/\-]', '', text)
+        
+        # Remove trailing Ի if present
+        text = ' '.join([w[:-1] if w.endswith("Ի") else w for w in text.split()])
+        
+        return re.sub(r'\s+', ' ', text).strip()
+
+    def normalize_number_part(self, text):
+        if pd.isna(text):
+            return ""
         text = str(text).strip().upper()
-        text = re.sub(r'[^\w\s]', '', text)
-        return re.sub(r'\s+', ' ', text)
+        return re.sub(r'[^\w/\-]', '', text)
 
     def normalize(self, text):
         if pd.isna(text):
@@ -118,19 +150,10 @@ class AddressNormalizer:
         if text in self.aliases:
             text = self.aliases[text]
 
-        # Remove suffixes
-        for suffix in self.armenian_suffixes:
-            text = re.sub(suffix, '', text, flags=re.IGNORECASE)
-
-        # Remove special chars, extra spaces
-        text = re.sub(r'[^\w\s]', '', text)
-        text = re.sub(r'\s+', ' ', text)
-
-        # Remove trailing "Ի" if it's the last letter of each word
-        text = ' '.join([w[:-1] if w.endswith("Ի") else w for w in text.split()])
-
-        # Normalize again and map old names to new ones
+        # Apply normalization
         text_norm = self._norm(text)
+        
+        # Apply final mapping
         return self.old_to_new_map.get(text_norm, text_norm)
 
 
@@ -244,6 +267,23 @@ class AdvancedAddressMatcher:
         return pd.DataFrame(matches)
 
 
+    def _construct_original_full_address(self, row, registry_type):
+        """Construct original full address from non-normalized components"""
+        street = str(row.get("STREET_NAME", "")).strip()
+        house = str(row.get("HOUSE", "")).strip()
+        building = str(row.get("BUILDING", "")).strip()
+        
+        # For CAD registry, we can also include additional address components if needed
+        if registry_type == "CAD":
+            # Get the original ADDRESS field if it exists (it contains the full formatted address)
+            original_address = row.get("ADDRESS", "")
+            if original_address:
+                return str(original_address).strip()
+        
+        # Construct from components
+        components = [comp for comp in [street, house, building] if comp]
+        return " ".join(components)
+
     def _create_match_record(self, spr_row, cad_row, score, match_type, candidates_count=1):
         """Create standardized match record"""
         return {
@@ -257,6 +297,15 @@ class AdvancedAddressMatcher:
             "HOUSE_CAD": cad_row.get("HOUSE", ""),
             "BUILDING_CAD": cad_row.get("BUILDING", ""),
             "FULL_ADDRESS_CAD": cad_row.get("FULL_ADDRESS", ""),
+            # Original street names (before normalization)
+            "ORIGINAL_STREET_NAME_SPR": spr_row.get("STREET_NAME", ""),
+            "ORIGINAL_STREET_NAME_CAD": cad_row.get("STREET_NAME", ""),
+            # Original full addresses (constructed from original components)
+            "ORIGINAL_FULL_ADDRESS_SPR": self._construct_original_full_address(spr_row, "SPR"),
+            "ORIGINAL_FULL_ADDRESS_CAD": self._construct_original_full_address(cad_row, "CAD"),
+            # Normalized full addresses (these are already normalized)
+            "NORMALIZED_FULL_ADDRESS_SPR": spr_row.get("FULL_ADDRESS", ""),
+            "NORMALIZED_FULL_ADDRESS_CAD": cad_row.get("FULL_ADDRESS", ""),
             "MATCH_SCORE": score,
             "MATCH_TYPE": match_type,
             "CANDIDATES_COUNT": candidates_count,
@@ -278,7 +327,7 @@ def load_registry_data_from_csv(source: str, file_path: str) -> pd.DataFrame:
         return pd.DataFrame()
 
 
-@st.cache_data
+# @st.cache_data
 def preprocess_registries(_spr_df, _cad_df):
     """Comprehensive data preprocessing pipeline"""
     normalizer = AddressNormalizer()
@@ -294,8 +343,8 @@ def preprocess_registries(_spr_df, _cad_df):
 
         # Normalize fields
         processed['STREET_NORM'] = processed['STREET_NAME'].apply(normalizer.normalize)
-        processed['HOUSE_NORM'] = processed['HOUSE'].apply(normalizer.normalize)
-        processed['BUILDING_NORM'] = processed['BUILDING'].apply(normalizer.normalize)
+        processed['HOUSE_NORM'] = processed['HOUSE'].apply(normalizer.normalize_number_part)
+        processed['BUILDING_NORM'] = processed['BUILDING'].apply(normalizer.normalize_number_part)
 
         # Create composite addresses
         processed['FULL_ADDRESS'] = (
