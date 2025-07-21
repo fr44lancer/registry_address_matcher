@@ -126,12 +126,12 @@ class AddressNormalizer:
 
         # Normalize Armenian "and" BEFORE upper() to handle both cases
         # Convert all forms to the ligature և for standardization
-        text = text.replace('ԵՎ', 'և')  # uppercase separate chars → ligature
-        text = text.replace('եվ', 'և')  # lowercase separate chars → ligature
-        text = text.replace('Անտառավան', 'Անտառ')  # lowercase separate chars → ligature
-        text = text.replace('ԱՆՏԱՌԱՎԱՆ', 'ԱՆՏԱՌ')  # lowercase separate chars → ligature
-        text = text.replace('ՀՐ․', 'ՀՐԱՊԱՐԱԿ')  # lowercase separate chars → ligature
-        text = text.replace('ՄՈՒՇ֊2', 'ՄՈՒՇ 2')  # lowercase separate chars → ligature
+        text = text.replace('ԵՎ', 'և')
+        text = text.replace('եվ', 'և')
+        text = text.replace('Անտառավան', 'Անտառ')
+        text = text.replace('ԱՆՏԱՌԱՎԱՆ', 'ԱՆՏԱՌ')
+        text = text.replace('ՀՐ․', 'ՀՐԱՊԱՐԱԿ')
+        text = re.sub(r'ՄՈՒՇ[-֊‐‑‒–—―]2', 'ՄՈՒՇ 2', text)
 
         # Now convert to uppercase (which will preserve the և ligature)
         text = text.upper()
