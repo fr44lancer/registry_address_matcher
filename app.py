@@ -1,407 +1,224 @@
 import streamlit as st
 import pandas as pd
-import time
-from datetime import datetime
 import logging
+import sys
+import os
+from typing import Dict, Any
 
-# Import our modules
-from config.settings import APP_CONFIG, DB_CONFIG, MATCHING_CONFIG
-from src.database.connection import get_database_manager
-from src.database.data_loader import load_registry_data_cached
-from src.quality.analyzer import DataQualityAnalyzer
-from src.visualization.charts import VisualizationManager
-from src.utils.export import ExportManager
-from src.utils.logging import setup_logging, get_logger
+# Add the current directory to Python path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from src.matching.normalizer import AddressNormalizer
-from src.matching.engine import AdvancedAddressMatcher
-
-# Setup logging
-logger = setup_logging()
-app_logger = get_logger('app')
-
-# Page configuration
-st.set_page_config(
-    page_title=APP_CONFIG.page_title,
-    page_icon=APP_CONFIG.page_icon,
-    layout=APP_CONFIG.layout,
-    initial_sidebar_state="expanded"
+# Import MVC components
+from models import analyze_data_quality, preprocess_registries, load_registry_data_from_csv, get_unmatched_street_names
+from views import (
+    configure_page, apply_custom_css, render_main_header,
+    render_data_overview_metrics, render_sample_data_preview,
+    render_interactive_match_explorer, render_manual_review_interface,
+    render_combined_unmatched_summary, render_registry_selector, render_unmatched_addresses_table_combined,
+    render_unmatched_street_names_tab
 )
-
-# Custom CSS
-st.markdown("""
-<style>
-    .main-header {
-        background: linear-gradient(90deg, #1e3c72 0%, #2a5298 100%);
-        padding: 1rem;
-        border-radius: 10px;
-        margin-bottom: 2rem;
-        color: white;
-    }
-    .metric-container {
-        background: white;
-        padding: 1rem;
-        border-radius: 8px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        border-left: 4px solid #2a5298;
-    }
-    .match-quality-excellent { background-color: #d4edda; }
-    .match-quality-good { background-color: #fff3cd; }
-    .match-quality-poor { background-color: #f8d7da; }
-    .sidebar-section {
-        background: #f8f9fa;
-        padding: 1rem;
-        border-radius: 8px;
-        margin-bottom: 1rem;
-    }
-    .stProgress > div > div > div > div {
-        background: linear-gradient(90deg, #1e3c72 0%, #2a5298 100%);
-    }
-</style>
-""", unsafe_allow_html=True)
+from controllers.matching_controller import MatchingController
+from controllers.duplicates_controller import DuplicatesController
 
 
-def initialize_session_state():
-    """Initialize session state variables"""
-    if 'db_manager' not in st.session_state:
-        st.session_state.db_manager = None
-    if 'spr_data' not in st.session_state:
-        st.session_state.spr_data = None
-    if 'cad_data' not in st.session_state:
-        st.session_state.cad_data = None
-    if 'matches_data' not in st.session_state:
-        st.session_state.matches_data = None
-    if 'quality_metrics' not in st.session_state:
-        st.session_state.quality_metrics = None
-
-
-def preprocess_registries(spr_df, cad_df):
-    """Comprehensive data preprocessing pipeline matching original address.py"""
-    normalizer = AddressNormalizer()
-    
-    def process_registry(df, registry_name):
-        """Process individual registry with comprehensive normalization"""
-        processed = df.copy()
-        
-        # Handle missing values
-        processed['STREET_NAME'] = processed['STREET_NAME'].fillna('')
-        processed['HOUSE'] = processed['HOUSE'].fillna('')
-        processed['BUILDING'] = processed['BUILDING'].fillna('')
-        
-        # Normalize fields
-        processed['STREET_NORM'] = processed['STREET_NAME'].apply(normalizer.normalize_street_name)
-        processed['HOUSE_NORM'] = processed['HOUSE'].apply(normalizer.normalize_house_number)
-        processed['BUILDING_NORM'] = processed['BUILDING'].apply(normalizer.normalize_building_number)
-        
-        # Create composite addresses
-        processed['FULL_ADDRESS'] = (
-            processed['STREET_NORM'] + " " +
-            processed['HOUSE_NORM'] + " " +
-            processed['BUILDING_NORM']
-        ).str.strip()
-        
-        # Create search keys
-        processed['SEARCH_KEY'] = (
-            processed['STREET_NORM'] + "_" + processed['HOUSE_NORM']
-        )
-        
-        # Data quality metrics
-        processed['COMPLETENESS_SCORE'] = (
-            processed['STREET_NAME'].notna().astype(int) +
-            processed['HOUSE'].notna().astype(int) +
-            processed['BUILDING'].notna().astype(int)
-        ) / 3
-        
-        app_logger.info(f"Processed {len(processed)} records for {registry_name}")
-        return processed
-    
-    # Process both registries
-    spr_processed = process_registry(spr_df, 'SPR')
-    cad_processed = process_registry(cad_df, 'CAD')
-    
-    return spr_processed, cad_processed
 
 
 def main():
-    """Main application function"""
-    initialize_session_state()
+    """Main application entry point"""
     
-    # Header
-    st.markdown("""
-    <div class="main-header">
-        <h1>🏘️ Address Registry Matcher</h1>
-        <p>Advanced fuzzy matching system for address registries with comprehensive quality analysis</p>
-    </div>
-    """, unsafe_allow_html=True)
+    # Configure page
+    configure_page()
     
-    # Sidebar configuration
-    st.sidebar.markdown("""
-    <div class="sidebar-section">
-        <h3>⚙️ Configuration</h3>
-    </div>
-    """, unsafe_allow_html=True)
+    # Apply custom CSS
+    apply_custom_css()
     
-    # Database connection
-    st.sidebar.subheader("Database Connection")
+    # Render main header
+    render_main_header()
     
-    if st.sidebar.button("Connect to Database"):
-        with st.spinner("Connecting to database..."):
-            st.session_state.db_manager = get_database_manager()
-            if st.session_state.db_manager and st.session_state.db_manager.test_connection():
-                st.sidebar.success("✅ Database connected successfully!")
-                app_logger.info("Database connection established")
-            else:
-                st.sidebar.error("❌ Database connection failed!")
-                app_logger.error("Database connection failed")
+    # Initialize controllers
+    controller = MatchingController()
+    duplicates_controller = DuplicatesController()
     
-    # Data loading section
-    if st.session_state.db_manager:
-        st.sidebar.subheader("Data Loading")
-        
-        # Table selection
-        spr_table = st.sidebar.text_input("SPR Table Name", value="spr")
-        cad_table = st.sidebar.text_input("CAD Table Name", value="cadastre")
-        
-        if st.sidebar.button("Load Data"):
-            with st.spinner("Loading registry data..."):
-                # Load SPR data
-                st.session_state.spr_data = load_registry_data_cached(
-                    "SPR", spr_table, st.session_state.db_manager
-                )
-                
-                # Load CAD data
-                st.session_state.cad_data = load_registry_data_cached(
-                    "CAD", cad_table, st.session_state.db_manager
-                )
-                
-                if st.session_state.spr_data is not None and st.session_state.cad_data is not None:
-                    st.sidebar.success("✅ Data loaded successfully!")
-                    app_logger.info(f"Loaded {len(st.session_state.spr_data)} SPR and {len(st.session_state.cad_data)} CAD records")
-                else:
-                    st.sidebar.error("❌ Data loading failed!")
     
-    # Matching configuration
-    if st.session_state.spr_data is not None and st.session_state.cad_data is not None:
-        st.sidebar.subheader("Matching Configuration")
-        
-        max_records = st.sidebar.slider(
-            "Max SPR Records to Process",
-            min_value=100,
-            max_value=min(10000, len(st.session_state.spr_data)),
-            value=min(1000, len(st.session_state.spr_data)),
-            step=100
-        )
-        
-        # Matching thresholds
-        threshold_excellent = st.sidebar.slider(
-            "Excellent Match Threshold",
-            min_value=80.0,
-            max_value=100.0,
-            value=MATCHING_CONFIG.threshold_excellent,
-            step=1.0
-        )
-        
-        threshold_good = st.sidebar.slider(
-            "Good Match Threshold",
-            min_value=60.0,
-            max_value=90.0,
-            value=MATCHING_CONFIG.threshold_good,
-            step=1.0
-        )
-        
-        if st.sidebar.button("Start Matching"):
-            with st.spinner("Processing and matching addresses..."):
-                # Preprocess data
-                spr_processed, cad_processed = preprocess_registries(
-                    st.session_state.spr_data, st.session_state.cad_data
-                )
-                
-                # Create matcher
-                matcher = AdvancedAddressMatcher(
-                    spr_processed, cad_processed, max_records=max_records
-                )
-                
-                # Perform matching
-                st.session_state.matches_data = matcher.match_addresses()
-                
-                # Analyze quality
-                quality_analyzer = DataQualityAnalyzer()
-                spr_quality = quality_analyzer.analyze_registry_quality(spr_processed, "SPR")
-                cad_quality = quality_analyzer.analyze_registry_quality(cad_processed, "CAD")
-                
-                st.session_state.quality_metrics = {
-                    'spr_quality': spr_quality,
-                    'cad_quality': cad_quality,
-                    'matching_stats': matcher.get_matching_statistics()
-                }
-                
-                st.sidebar.success("✅ Matching completed!")
-                app_logger.info(f"Matching completed with {len(st.session_state.matches_data)} matches")
+    # Create main tabs
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
+        ["📊 Data Overview", "🔍 Matching Process", "📈 Results Analysis", "🛣️ Street Names", "🔍 SPR Duplicates", "❌ Unmatched Addresses"]
+    )
     
-    # Main content area
-    if st.session_state.matches_data is not None:
-        # Display results
-        st.subheader("📊 Matching Results")
+    with tab1:
+        render_data_overview_tab(controller)
+    
+    with tab2:
+        render_matching_process_tab(controller)
+    
+    with tab3:
+        render_results_analysis_tab(controller)
+    
+    with tab4:
+        render_street_names_tab(controller)
+    
+    with tab5:
+        render_duplicates_tab(duplicates_controller)
+    
+    with tab6:
+        render_unmatched_addresses_tab(controller)
+
+
+def render_data_overview_tab(controller: MatchingController):
+    """Render the data overview tab"""
+    st.subheader("Registry Data Overview")
+    
+    # Load data
+    spr_processed, cad_processed = controller.load_data()
+    
+    if spr_processed is None or cad_processed is None:
+        st.error("Failed to load registry data")
+        return
+
+    # Get data quality metrics
+    quality_metrics = controller.get_data_quality_metrics(spr_processed, cad_processed)
+    spr_quality = quality_metrics['spr_quality']
+    cad_quality = quality_metrics['cad_quality']
+
+    # Render data overview metrics
+    render_data_overview_metrics(spr_quality, cad_quality)
+    
+
+    
+    # Sample data preview
+    render_sample_data_preview(spr_processed, cad_processed)
+
+
+
+
+def render_matching_process_tab(controller: MatchingController):
+    """Render the matching process tab"""
+    controller.render_matching_process_tab()
+
+
+def render_results_analysis_tab(controller: MatchingController):
+    """Render the results analysis tab"""
+    st.subheader("Results Analysis & Visualization")
+    
+    matches_df = controller.get_matching_results()
+    
+    if matches_df is None:
+        st.info("No matching results available. Please run the matching process first.")
+        return
+    
+    if len(matches_df) == 0:
+        st.warning("No matches found. Try adjusting the matching parameters.")
+        return
+
+
+
+
+    # Interactive match explorer
+    filtered_matches = render_interactive_match_explorer(matches_df)
+    
+    # Manual review interface
+    render_manual_review_interface(filtered_matches)
+
+
+
+def render_street_names_tab(controller: MatchingController):
+    """Render the street names comparison tab"""
+    st.subheader("Street Names Comparison")
+    
+    # Check if data is loaded
+    if st.session_state.get('spr_processed') is None or st.session_state.get('cad_processed') is None:
+        st.warning("⚠️ Please load data in the **Data Overview** tab first")
+        return
+    
+    # Get the processed data
+    spr_processed = st.session_state.get('spr_processed')
+    cad_processed = st.session_state.get('cad_processed')
+    
+    # Get unmatched street names
+    spr_missing_df, cad_missing_df = get_unmatched_street_names(spr_processed, cad_processed)
+    
+    # Render the comparison
+    render_unmatched_street_names_tab(spr_missing_df, cad_missing_df)
+
+
+def render_duplicates_tab(duplicates_controller: DuplicatesController):
+    """Render the duplicates analysis tab"""
+    duplicates_controller.render_duplicates_tab()
+
+
+def render_unmatched_addresses_tab(controller: MatchingController):
+    """Render the unmatched addresses tab for both SPR and Cadastre"""
+    st.subheader("Unmatched Addresses - SPR & Cadastre")
+    
+    # Check if data is loaded
+    if st.session_state.get('spr_processed') is None or st.session_state.get('cad_processed') is None:
+        st.warning("⚠️ Please load data in the **Data Overview** tab first")
+        return
+    
+    # Check if matching has been performed
+    if st.session_state.get('matching_results') is None:
+        st.info("🔍 Please run the matching process in the **Matching Process** tab first to see unmatched addresses")
         
-        # Key metrics
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            st.metric("Total Matches", len(st.session_state.matches_data))
-        
-        with col2:
-            avg_score = st.session_state.matches_data['match_score'].mean()
-            st.metric("Average Score", f"{avg_score:.1f}")
-        
-        with col3:
-            if len(st.session_state.spr_data) > 0:
-                match_rate = len(st.session_state.matches_data) / len(st.session_state.spr_data) * 100
-                st.metric("Match Rate", f"{match_rate:.1f}%")
-            else:
-                st.metric("Match Rate", "N/A")
-        
-        with col4:
-            excellent_matches = len(st.session_state.matches_data[
-                st.session_state.matches_data['match_score'] >= threshold_excellent
-            ])
-            st.metric("Excellent Matches", excellent_matches)
-        
-        # Tabs for different views
-        tab1, tab2, tab3, tab4 = st.tabs(["📈 Visualizations", "📋 Data Tables", "📊 Quality Analysis", "📥 Export"])
-        
-        with tab1:
-            # Visualizations
-            viz_manager = VisualizationManager()
-            
-            # Match quality chart
-            quality_chart = viz_manager.create_match_quality_chart(st.session_state.matches_data)
-            if quality_chart:
-                st.plotly_chart(quality_chart, use_container_width=True)
-            
-            # Data quality comparison
-            if st.session_state.quality_metrics:
-                quality_dashboard = viz_manager.create_data_quality_dashboard(
-                    st.session_state.quality_metrics['spr_quality'],
-                    st.session_state.quality_metrics['cad_quality']
-                )
-                st.plotly_chart(quality_dashboard, use_container_width=True)
-        
-        with tab2:
-            # Data tables
-            st.subheader("Matched Addresses")
-            
-            # Filter options
+        # Show some basic info about total records
+        spr_processed = st.session_state.get('spr_processed')
+        cad_processed = st.session_state.get('cad_processed')
+        if spr_processed is not None and cad_processed is not None:
             col1, col2 = st.columns(2)
             with col1:
-                quality_filter = st.selectbox(
-                    "Filter by Quality",
-                    ["All", "Excellent", "Good", "Poor"]
-                )
-            
+                st.write(f"📋 **Total SPR records loaded:** {len(spr_processed):,}")
             with col2:
-                score_filter = st.slider(
-                    "Minimum Score",
-                    min_value=0.0,
-                    max_value=100.0,
-                    value=0.0,
-                    step=1.0
-                )
-            
-            # Apply filters
-            filtered_matches = st.session_state.matches_data.copy()
-            
-            if quality_filter != "All":
-                filtered_matches = filtered_matches[
-                    filtered_matches['match_quality'] == quality_filter
-                ]
-            
-            filtered_matches = filtered_matches[
-                filtered_matches['match_score'] >= score_filter
-            ]
-            
-            st.dataframe(filtered_matches, use_container_width=True)
-        
-        with tab3:
-            # Quality analysis
-            st.subheader("Data Quality Analysis")
-            
-            if st.session_state.quality_metrics:
-                quality_analyzer = DataQualityAnalyzer()
-                
-                # Display quality metrics
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    st.subheader("SPR Registry Quality")
-                    spr_quality = st.session_state.quality_metrics['spr_quality']
-                    st.metric("Overall Quality Score", f"{spr_quality['overall_quality_score']:.1%}")
-                    st.metric("Total Records", f"{spr_quality['total_records']:,}")
-                    st.metric("Average Completeness", f"{spr_quality['completeness_metrics'].get('avg_completeness', 0):.1%}")
-                
-                with col2:
-                    st.subheader("CAD Registry Quality")
-                    cad_quality = st.session_state.quality_metrics['cad_quality']
-                    st.metric("Overall Quality Score", f"{cad_quality['overall_quality_score']:.1%}")
-                    st.metric("Total Records", f"{cad_quality['total_records']:,}")
-                    st.metric("Average Completeness", f"{cad_quality['completeness_metrics'].get('avg_completeness', 0):.1%}")
-                
-                # Recommendations
-                recommendations = quality_analyzer._generate_recommendations([spr_quality, cad_quality])
-                if recommendations:
-                    st.subheader("🔧 Recommendations")
-                    for rec in recommendations:
-                        st.warning(rec)
-        
-        with tab4:
-            # Export functionality
-            st.subheader("Export Results")
-            
-            export_manager = ExportManager()
-            
-            # Validate export data
-            validation = export_manager.validate_export_data(
-                st.session_state.matches_data,
-                st.session_state.spr_data,
-                st.session_state.cad_data
-            )
-            
-            if validation['is_valid']:
-                if st.button("Generate Export Package"):
-                    with st.spinner("Creating export package..."):
-                        try:
-                            export_data = export_manager.create_export_package(
-                                st.session_state.matches_data,
-                                st.session_state.spr_data,
-                                st.session_state.cad_data,
-                                st.session_state.quality_metrics
-                            )
-                            
-                            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                            filename = f"address_matching_results_{timestamp}.zip"
-                            
-                            st.download_button(
-                                label="📥 Download Export Package",
-                                data=export_data,
-                                file_name=filename,
-                                mime="application/zip"
-                            )
-                            
-                            st.success("✅ Export package created successfully!")
-                            app_logger.info(f"Export package created: {filename}")
-                            
-                        except Exception as e:
-                            st.error(f"❌ Export failed: {str(e)}")
-                            app_logger.error(f"Export failed: {str(e)}")
-            else:
-                st.error("❌ Export validation failed:")
-                for error in validation['errors']:
-                    st.error(f"• {error}")
-                for warning in validation['warnings']:
-                    st.warning(f"• {warning}")
+                st.write(f"🏛️ **Total Cadastre records loaded:** {len(cad_processed):,}")
+            st.write("Once matching is complete, unmatched addresses from both registries will be displayed here for analysis.")
+        return
     
-    # Footer
-    st.markdown("---")
-    st.markdown("*Address Registry Matcher v1.0 - Advanced fuzzy matching with quality analysis*")
+    # Get unmatched addresses from both registries
+    unmatched_spr_df = controller.get_unmatched_spr_addresses()
+    unmatched_cad_df = controller.get_unmatched_cad_addresses()
+    
+    if unmatched_spr_df is None and unmatched_cad_df is None:
+        st.error("❌ Unable to retrieve unmatched addresses")
+        return
+    
+    # Check if both are empty
+    spr_empty = unmatched_spr_df is None or unmatched_spr_df.empty
+    cad_empty = unmatched_cad_df is None or unmatched_cad_df.empty
+    
+    if spr_empty and cad_empty:
+        st.success("🎉 Excellent! No unmatched addresses found! All addresses from both registries have been successfully matched.")
+        
+        # Show some stats
+        matches_df = st.session_state.get('matching_results')
+        spr_processed = st.session_state.get('spr_processed')
+        cad_processed = st.session_state.get('cad_processed')
+        if matches_df is not None and spr_processed is not None and cad_processed is not None:
+            col1, col2 = st.columns(2)
+            with col1:
+                st.write(f"📋 **Total SPR Records:** {len(spr_processed):,}")
+            with col2:
+                st.write(f"🏛️ **Total Cadastre Records:** {len(cad_processed):,}")
+            st.write(f"✅ **Total Matches:** {len(matches_df):,}")
+            st.write(f"🎯 **Match Rate:** 100%")
+        return
+    
+    # Show summary with match context
+    matches_df = st.session_state.get('matching_results')
+    spr_processed = st.session_state.get('spr_processed')
+    cad_processed = st.session_state.get('cad_processed')
+    if matches_df is not None and spr_processed is not None and cad_processed is not None:
+        match_rate = len(matches_df) / len(spr_processed) * 100 if len(spr_processed) > 0 else 0
+        spr_unmatched_count = len(unmatched_spr_df) if unmatched_spr_df is not None else 0
+        cad_unmatched_count = len(unmatched_cad_df) if unmatched_cad_df is not None else 0
+        st.info(f"📊 **Matching Summary:** {len(matches_df):,} matches found ({match_rate:.1f}% match rate) | SPR: {spr_unmatched_count:,} unmatched | Cadastre: {cad_unmatched_count:,} unmatched")
+    
+    # Render combined summary
+    render_combined_unmatched_summary(unmatched_spr_df, unmatched_cad_df)
+    
+    # Render registry selector
+    registry_filter = render_registry_selector()
+    
+    # Render combined table with filtering
+    render_unmatched_addresses_table_combined(unmatched_spr_df, unmatched_cad_df, registry_filter)
+    
 
 
 if __name__ == "__main__":
